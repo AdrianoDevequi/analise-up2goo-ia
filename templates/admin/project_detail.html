@@ -661,7 +661,9 @@ function checkStatus() {
       const issues = data.total_issues || 0;
       const expected = data.pages_expected || 0;
 
-      if (pages === 0 && expected > 0) {
+      if (expected === -1) {
+        document.getElementById('progressText').textContent = 'Carregando sitemap...';
+      } else if (pages === 0 && expected > 0) {
         document.getElementById('progressText').textContent =
           `Analisando... ${expected} página${expected !== 1 ? 's' : ''} na fila`;
       } else if (pages === 0) {

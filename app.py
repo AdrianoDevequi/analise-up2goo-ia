@@ -335,6 +335,10 @@ def run_analysis_background(analysis_id, project_url, sitemap_url=None, use_play
                 # ── Modo sitemap: busca + analisa cada URL imediatamente ──
                 if sitemap_url:
                     print(f'[ANALYSIS] Usando sitemap: {sitemap_url}')
+                    # Signal UI that sitemap is loading (-1 = loading)
+                    cur.execute('UPDATE analyses SET pages_expected=%s WHERE id=%s',
+                                (-1, analysis_id))
+                    conn.commit()
                     try:
                         sitemap_urls = get_sitemap_urls(sitemap_url, max_urls=500)
                         print(f'[ANALYSIS] {len(sitemap_urls)} URLs no sitemap')
