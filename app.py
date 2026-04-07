@@ -338,14 +338,14 @@ def run_analysis_background(analysis_id, project_url, sitemap_url=None, use_play
                 if sitemap_url:
                     print(f'[ANALYSIS] Usando sitemap: {sitemap_url}')
                     try:
-                        sitemap_urls = get_sitemap_urls(sitemap_url, max_urls=100)
+                        sitemap_urls = get_sitemap_urls(sitemap_url, max_urls=500)
                         print(f'[ANALYSIS] {len(sitemap_urls)} URLs no sitemap')
                     except Exception as e:
                         print(f'[ANALYSIS] Falha no sitemap, crawl normal: {e}')
                         sitemap_urls = None
 
                     if sitemap_urls:
-                        url_list = sitemap_urls[:50]
+                        url_list = sitemap_urls
                         cur.execute('UPDATE analyses SET pages_expected=%s WHERE id=%s',
                                     (len(url_list), analysis_id))
                         conn.commit()
