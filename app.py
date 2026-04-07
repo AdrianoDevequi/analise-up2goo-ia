@@ -8,9 +8,10 @@ from functools import wraps
 
 import psycopg2
 import psycopg2.extras
+from io import BytesIO
 from flask import (
     Flask, render_template, request, redirect,
-    url_for, session, flash, jsonify, g
+    url_for, session, flash, jsonify, g, send_file
 )
 from werkzeug.security import generate_password_hash, check_password_hash
 from dotenv import load_dotenv
@@ -1246,6 +1247,185 @@ def client_page_issues(project_id, page_id):
         'page': dict(page),
         'issues': [dict(i) for i in issues]
     })
+
+
+# ---------------------------------------------------------------------------
+# Export issues to Excel spreadsheet
+# ---------------------------------------------------------------------------
+
+@app.route('/cliente/projeto/<int:project_id>/exportar')
+@login_required
+def client_export_issues(project_id):
+    import json
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+
+    db = get_db()
+    with db.cursor() as cur:
+        # Validate ownership
+        if session.get('role') == 'admin':
+            cur.execute('SELECT * FROM projects WHERE id=%s', (project_id,))
+        else:
+            cur.execute('SELECT * FROM projects WHERE id=%s AND client_id=%s',
+                        (project_id, session['user_id']))
+        project = cur.fetchone()
+        if not project:
+            flash('Projeto não encontrado.', 'danger')
+            return redirect(url_for('client_dashboard'))
+
+        cur.execute(
+            "SELECT * FROM analyses WHERE project_id=%s AND status IN ('completed','stopped') ORDER BY completed_at DESC LIMIT 1",
+            (project_id,)
+        )
+        analysis = cur.fetchone()
+        if not analysis:
+            flash('Nenhuma análise disponível para exportar.', 'warning')
+            return redirect(url_for('client_project_view', project_id=project_id))
+
+        cur.execute('''
+            SELECT pg.url AS page_url, pg.title AS page_title,
+                   i.category, i.severity, i.title, i.description,
+                   i.current_value, i.suggestion, i.ai_suggestion
+            FROM pages pg
+            JOIN issues i ON i.page_id = pg.id
+            WHERE pg.analysis_id = %s
+            ORDER BY pg.url,
+                     CASE i.severity WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END
+        ''', (analysis['id'],))
+        rows = cur.fetchall()
+
+    # -- Build Excel workbook --
+    wb = Workbook()
+    ws = wb.active
+    ws.title = 'Problemas SEO'
+
+    # Styles
+    header_font = Font(bold=True, color='FFFFFF', size=11)
+    header_fill = PatternFill(start_color='2563EB', end_color='2563EB', fill_type='solid')
+    header_align = Alignment(horizontal='center', vertical='center', wrap_text=True)
+    thin_border = Border(
+        left=Side(style='thin', color='DEE2E6'),
+        right=Side(style='thin', color='DEE2E6'),
+        top=Side(style='thin', color='DEE2E6'),
+        bottom=Side(style='thin', color='DEE2E6')
+    )
+
+    sev_fills = {
+        'high': PatternFill(start_color='FFF5F5', end_color='FFF5F5', fill_type='solid'),
+        'medium': PatternFill(start_color='FFFBF0', end_color='FFFBF0', fill_type='solid'),
+        'low': PatternFill(start_color='F0F4FF', end_color='F0F4FF', fill_type='solid'),
+    }
+    sev_fonts = {
+        'high': Font(bold=True, color='DC3545'),
+        'medium': Font(bold=True, color='B45309'),
+        'low': Font(color='6C757D'),
+    }
+    sev_labels = {'high': 'Crítico', 'medium': 'Médio', 'low': 'Baixo'}
+    cat_labels = {
+        'title': 'Título', 'meta': 'Meta Description', 'heading': 'Títulos (H1/H2)',
+        'content': 'Conteúdo', 'image': 'Imagens', 'social': 'Redes Sociais',
+        'technical': 'Técnico', 'links': 'Links', 'legibilidade': 'Legibilidade'
+    }
+
+    headers = ['URL da Página', 'Título da Página', 'Categoria', 'Severidade',
+               'Problema', 'Descrição', 'Situação Atual', 'Sugestão', 'Sugestão IA']
+
+    # Write header row
+    for col, header in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col, value=header)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = header_align
+        cell.border = thin_border
+
+    # Write data rows
+    for row_idx, row in enumerate(rows, 2):
+        # Parse AI suggestion
+        ai_text = ''
+        if row['ai_suggestion']:
+            try:
+                ai = row['ai_suggestion'] if isinstance(row['ai_suggestion'], dict) else json.loads(row['ai_suggestion'])
+                parts = []
+                if ai.get('titulo'):
+                    parts.append(f"Título: {ai['titulo']}")
+                if ai.get('meta_description'):
+                    parts.append(f"Meta: {ai['meta_description']}")
+                if ai.get('h1'):
+                    parts.append(f"H1: {ai['h1']}")
+                if ai.get('dica_conteudo'):
+                    parts.append(f"Dica: {ai['dica_conteudo']}")
+                if ai.get('palavras_chave'):
+                    parts.append(f"Palavras-chave: {', '.join(ai['palavras_chave'])}")
+                ai_text = '\n'.join(parts)
+            except (json.JSONDecodeError, TypeError):
+                ai_text = str(row['ai_suggestion'])
+
+        sev = row['severity']
+        values = [
+            row['page_url'],
+            row['page_title'] or '(sem título)',
+            cat_labels.get(row['category'], row['category']),
+            sev_labels.get(sev, sev),
+            row['title'],
+            row['description'] or '',
+            row['current_value'] or '',
+            row['suggestion'] or '',
+            ai_text
+        ]
+
+        for col, val in enumerate(values, 1):
+            cell = ws.cell(row=row_idx, column=col, value=val)
+            cell.border = thin_border
+            cell.alignment = Alignment(vertical='top', wrap_text=True)
+
+        # Color the severity cell
+        sev_cell = ws.cell(row=row_idx, column=4)
+        sev_cell.fill = sev_fills.get(sev, PatternFill())
+        sev_cell.font = sev_fonts.get(sev, Font())
+
+    # Column widths
+    widths = [45, 35, 18, 12, 30, 40, 30, 40, 50]
+    for i, w in enumerate(widths, 1):
+        ws.column_dimensions[ws.cell(row=1, column=i).column_letter].width = w
+
+    # Freeze header row
+    ws.freeze_panes = 'A2'
+
+    # Auto filter
+    ws.auto_filter.ref = f'A1:I{len(rows) + 1}'
+
+    # -- Summary sheet --
+    ws2 = wb.create_sheet('Resumo')
+    ws2.cell(row=1, column=1, value='Relatório SEO').font = Font(bold=True, size=14, color='2563EB')
+    ws2.cell(row=2, column=1, value=project['name']).font = Font(bold=True, size=12)
+    ws2.cell(row=3, column=1, value=project['url'])
+    ws2.cell(row=4, column=1, value=f"Data da análise: {analysis['completed_at'].strftime('%d/%m/%Y %H:%M') if analysis.get('completed_at') else ''}")
+    ws2.cell(row=6, column=1, value='Resumo').font = Font(bold=True, size=11)
+    ws2.cell(row=7, column=1, value='Total de páginas:')
+    ws2.cell(row=7, column=2, value=analysis['total_pages'])
+    ws2.cell(row=8, column=1, value='Problemas críticos:')
+    ws2.cell(row=8, column=2, value=analysis['high_issues']).font = Font(bold=True, color='DC3545')
+    ws2.cell(row=9, column=1, value='Problemas médios:')
+    ws2.cell(row=9, column=2, value=analysis['medium_issues']).font = Font(bold=True, color='B45309')
+    ws2.cell(row=10, column=1, value='Problemas baixos:')
+    ws2.cell(row=10, column=2, value=analysis['low_issues'])
+    ws2.cell(row=11, column=1, value='Total de problemas:')
+    ws2.cell(row=11, column=2, value=analysis['total_issues']).font = Font(bold=True)
+    ws2.column_dimensions['A'].width = 25
+    ws2.column_dimensions['B'].width = 20
+
+    # Save to memory
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+
+    filename = f"relatorio-seo-{project['name'].replace(' ', '-').lower()}.xlsx"
+    return send_file(
+        output,
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        as_attachment=True,
+        download_name=filename
+    )
 
 
 # ---------------------------------------------------------------------------

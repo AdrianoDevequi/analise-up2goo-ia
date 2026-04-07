@@ -78,6 +78,14 @@
       </div>
     </div>
 
+    <!-- Export button -->
+    <div class="d-flex justify-content-end mb-3">
+      <a href="{{ url_for('client_export_issues', project_id=project.id) }}"
+         class="btn btn-outline-success">
+        <i class="bi bi-file-earmark-spreadsheet me-2"></i>Exportar Planilha
+      </a>
+    </div>
+
     <!-- Pages list -->
     {% if pages_data %}
     <div class="card shadow-sm border-0">
