@@ -358,28 +358,6 @@ def analyze_page(page_data):
             'suggestion': 'Adicione um alt descritivo em cada imagem, incluindo palavras-chave relevantes quando fizer sentido.'
         })
 
-    # --- OPEN GRAPH ---
-    og_title = soup.find('meta', property='og:title') or soup.find('meta', attrs={'property': 'og:title'})
-    og_desc = soup.find('meta', property='og:description') or soup.find('meta', attrs={'property': 'og:description'})
-    og_image = soup.find('meta', property='og:image') or soup.find('meta', attrs={'property': 'og:image'})
-    missing_og = []
-    if not og_title:
-        missing_og.append('og:title')
-    if not og_desc:
-        missing_og.append('og:description')
-    if not og_image:
-        missing_og.append('og:image')
-
-    if missing_og:
-        issues.append({
-            'category': 'social',
-            'severity': 'low',
-            'title': 'Open Graph incompleto',
-            'description': 'As tags Open Graph controlam como a página aparece ao ser compartilhada no Facebook, WhatsApp e outras redes.',
-            'current_value': f'Faltando: {", ".join(missing_og)}',
-            'suggestion': 'Adicione as tags Open Graph ausentes no <head> da página para melhorar o compartilhamento social.'
-        })
-
     # --- CANONICAL ---
     canonical = soup.find('link', rel='canonical') or soup.find('link', attrs={'rel': 'canonical'})
     if not canonical:
