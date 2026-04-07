@@ -505,7 +505,7 @@ Retorne APENAS JSON válido (sem markdown):
 Use português brasileiro. Seja específico ao nicho identificado na URL/título."""
 
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel('gemini-2.0-flash')
+        model = genai.GenerativeModel('gemini-2.0-flash-lite')
         response = model.generate_content(prompt)
         text = response.text.strip()
         m = re.search(r'\{[\s\S]*\}', text)
@@ -1241,7 +1241,7 @@ Retorne APENAS um JSON válido sem markdown: {{"{campo}": "texto gerado aqui"}}
 Use português brasileiro. Seja específico ao tema da página."""
 
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel('gemini-2.0-flash')
+        model = genai.GenerativeModel('gemini-2.0-flash-lite')
         response = model.generate_content(prompt)
         response_text = response.text.strip()
 

@@ -474,7 +474,7 @@ Retorne APENAS um JSON válido (sem markdown, sem explicações) com este format
 Use português brasileiro. Seja específico para o nicho/tema identificado na página."""
 
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel('gemini-2.0-flash')
+        model = genai.GenerativeModel('gemini-2.0-flash-lite')
         response = model.generate_content(prompt)
         response_text = response.text.strip()
 
