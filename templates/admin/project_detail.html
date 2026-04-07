@@ -293,9 +293,9 @@
                   {% endif %}
                 </td>
                 <td class="text-center">
-                  {% if page.issue_count > 0 %}
-                  <span class="badge {% if page.issue_count >= 5 %}bg-danger{% elif page.issue_count >= 3 %}bg-warning text-dark{% else %}bg-secondary{% endif %}">
-                    {{ page.issue_count }}
+                  {% if page.total_issue_count > 0 %}
+                  <span class="badge {% if page.total_issue_count >= 5 %}bg-danger{% elif page.total_issue_count >= 3 %}bg-warning text-dark{% else %}bg-secondary{% endif %}">
+                    {{ page.total_issue_count }}
                   </span>
                   {% else %}
                   <span class="badge bg-success-subtle text-success"><i class="bi bi-check-lg"></i></span>

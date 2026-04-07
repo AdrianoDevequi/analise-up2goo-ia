@@ -745,7 +745,7 @@ def admin_project_detail(project_id):
         if latest_analysis and latest_analysis['status'] == 'completed':
             cur.execute('''
                 SELECT pg.*,
-                       COUNT(i.id) as issue_count,
+                       COUNT(i.id) as total_issue_count,
                        COUNT(CASE WHEN i.severity='high' THEN 1 END) as high_count,
                        COUNT(CASE WHEN i.severity='medium' THEN 1 END) as medium_count,
                        COUNT(CASE WHEN i.severity='low' THEN 1 END) as low_count
@@ -753,7 +753,7 @@ def admin_project_detail(project_id):
                 LEFT JOIN issues i ON i.page_id = pg.id
                 WHERE pg.analysis_id = %s
                 GROUP BY pg.id
-                ORDER BY issue_count DESC
+                ORDER BY COUNT(i.id) DESC
             ''', (latest_analysis['id'],))
             pages_data = cur.fetchall()
 
@@ -1020,7 +1020,7 @@ def client_project_view(project_id):
         if latest_analysis:
             cur.execute('''
                 SELECT pg.*,
-                       COUNT(i.id) as issue_count,
+                       COUNT(i.id) as total_issue_count,
                        COUNT(CASE WHEN i.severity='high' THEN 1 END) as high_count,
                        COUNT(CASE WHEN i.severity='medium' THEN 1 END) as medium_count,
                        COUNT(CASE WHEN i.severity='low' THEN 1 END) as low_count
@@ -1028,7 +1028,7 @@ def client_project_view(project_id):
                 LEFT JOIN issues i ON i.page_id = pg.id
                 WHERE pg.analysis_id = %s
                 GROUP BY pg.id
-                ORDER BY issue_count DESC
+                ORDER BY COUNT(i.id) DESC
             ''', (latest_analysis['id'],))
             pages_data = cur.fetchall()
 
