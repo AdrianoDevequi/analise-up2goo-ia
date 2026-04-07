@@ -216,6 +216,18 @@ def init_db():
                 conn.commit()
                 print(f'[INIT] Admin criado: {admin_email} / {admin_password}')
 
+            # Mark any stale running/pending analyses as stopped (server restarted)
+            cur.execute(
+                """UPDATE analyses SET status='stopped', completed_at=%s,
+                   error_message='Interrompido por reinicialização do servidor'
+                   WHERE status IN ('running', 'pending')""",
+                (datetime.now(),)
+            )
+            affected = cur.rowcount
+            conn.commit()
+            if affected:
+                print(f'[INIT] {affected} análise(s) interrompida(s) por reinicialização.')
+
 
 # ---------------------------------------------------------------------------
 # ---------------------------------------------------------------------------
