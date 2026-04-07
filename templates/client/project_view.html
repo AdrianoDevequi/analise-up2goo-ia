@@ -573,7 +573,17 @@ function renderIssues(issues) {
                 <span class="badge bg-light text-muted border-0">${catLabels[issue.category] || issue.category}</span>
               </div>
               <p class="small text-muted mb-2">${issue.description || ''}</p>
-              ${issue.current_value ? `<div class="small mb-2 text-muted"><strong>Situação atual:</strong> <code class="text-dark">${issue.current_value}</code></div>` : ''}
+              ${issue.current_value ? (() => {
+                if (issue.category === 'image' && issue.current_value.includes('\n')) {
+                  const [summary, ...urls] = issue.current_value.split('\n');
+                  const urlItems = urls.filter(Boolean).map(u =>
+                    `<li class="text-break"><a href="${u}" target="_blank" rel="noopener" class="text-primary small">${u}</a></li>`
+                  ).join('');
+                  return `<div class="small mb-2 text-muted"><strong>Situação atual:</strong> <code class="text-dark">${summary}</code>
+                    <ul class="mt-1 mb-0 ps-3">${urlItems}</ul></div>`;
+                }
+                return `<div class="small mb-2 text-muted"><strong>Situação atual:</strong> <code class="text-dark">${issue.current_value}</code></div>`;
+              })() : ''}
               ${issue.suggestion ? `
               <div class="suggestion-box">
                 <i class="bi bi-lightbulb-fill text-warning me-2"></i>

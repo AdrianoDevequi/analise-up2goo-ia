@@ -349,12 +349,21 @@ def analyze_page(page_data):
     all_images = soup.find_all('img')
     images_no_alt = [img for img in all_images if not img.get('alt', '').strip()]
     if images_no_alt:
+        from urllib.parse import urljoin
+        srcs = []
+        for img in images_no_alt:
+            src = img.get('src', '').strip()
+            if src and not src.startswith('data:'):
+                srcs.append(urljoin(url, src))
+        current_val = f'{len(images_no_alt)} de {len(all_images)} imagens sem alt'
+        if srcs:
+            current_val += '\n' + '\n'.join(srcs)
         issues.append({
             'category': 'image',
             'severity': 'medium',
             'title': f'{len(images_no_alt)} imagem(ns) sem texto alternativo (alt)',
             'description': 'O atributo alt das imagens é indexado pelo Google Images e melhora a acessibilidade do site.',
-            'current_value': f'{len(images_no_alt)} de {len(all_images)} imagens sem alt',
+            'current_value': current_val,
             'suggestion': 'Adicione um alt descritivo em cada imagem, incluindo palavras-chave relevantes quando fizer sentido.'
         })
 
