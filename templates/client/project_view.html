@@ -103,6 +103,30 @@
                 <i class="bi bi-info-circle-fill me-1"></i>Baixo
               </button>
             </div>
+            <!-- Sort dropdown -->
+            <div class="dropdown">
+              <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button"
+                      id="sortBtn" data-bs-toggle="dropdown">
+                <i class="bi bi-sort-down me-1"></i>Ordenar
+              </button>
+              <ul class="dropdown-menu dropdown-menu-end">
+                <li>
+                  <button class="dropdown-item sort-option active" data-sort="default">
+                    <i class="bi bi-list-ol me-2 text-muted"></i>Padrão
+                  </button>
+                </li>
+                <li>
+                  <button class="dropdown-item sort-option" data-sort="score-asc">
+                    <i class="bi bi-sort-numeric-up me-2 text-danger"></i>Score: menor primeiro
+                  </button>
+                </li>
+                <li>
+                  <button class="dropdown-item sort-option" data-sort="score-desc">
+                    <i class="bi bi-sort-numeric-down me-2 text-success"></i>Score: maior primeiro
+                  </button>
+                </li>
+              </ul>
+            </div>
             <!-- Category dropdown -->
             <div class="dropdown">
               <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button"
@@ -153,6 +177,7 @@
           <div class="page-row"
                data-severities="{{ page.issue_severities | join(' ') if page.issue_severities else '' }}"
                data-categories="{{ page.issue_categories | join(' ') if page.issue_categories else '' }}"
+               data-score="{{ score }}"
                onclick="loadIssues({{ page.id }}, '{{ page.url | replace("'", "\\'") }}', '{{ page.title | replace("'", "\\'") }}')"
                role="button">
             <div class="d-flex align-items-center gap-3 p-3 border-bottom page-row-inner">
@@ -343,6 +368,50 @@ function clearCategoryFilter() {
   document.querySelectorAll('.cat-filter-check').forEach(cb => cb.checked = false);
   applyFilters();
 }
+
+// ── Ordenação ─────────────────────────────────────────────────
+let _defaultOrder = null;
+
+document.querySelectorAll('.sort-option').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.sort-option').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+
+    const sortVal = btn.dataset.sort;
+    const sortBtn = document.getElementById('sortBtn');
+    if (sortVal === 'default') {
+      sortBtn.innerHTML = '<i class="bi bi-sort-down me-1"></i>Ordenar';
+    } else if (sortVal === 'score-asc') {
+      sortBtn.innerHTML = '<i class="bi bi-sort-numeric-up me-1 text-danger"></i>Menor score';
+    } else {
+      sortBtn.innerHTML = '<i class="bi bi-sort-numeric-down me-1 text-success"></i>Maior score';
+    }
+
+    const list = document.getElementById('pagesList');
+    const rows = Array.from(list.querySelectorAll('.page-row'));
+
+    // Save original order once
+    if (!_defaultOrder) _defaultOrder = rows.map(r => r);
+
+    let sorted;
+    if (sortVal === 'default') {
+      sorted = _defaultOrder.slice();
+    } else {
+      sorted = rows.slice().sort((a, b) => {
+        const sa = parseInt(a.dataset.score) || 0;
+        const sb = parseInt(b.dataset.score) || 0;
+        return sortVal === 'score-asc' ? sa - sb : sb - sa;
+      });
+    }
+
+    // Re-append in new order (keeps existing display:none from filters)
+    sorted.forEach(r => list.appendChild(r));
+
+    // Move #noResults back to end
+    const noRes = document.getElementById('noResults');
+    if (noRes) list.appendChild(noRes);
+  });
+});
 
 // ── Issues modal ─────────────────────────────────────────────
 function loadIssues(pageId, pageUrl, pageTitle) {
