@@ -1176,8 +1176,11 @@ def client_dashboard():
         cur.execute('''
             SELECT p.*,
                    (SELECT status FROM analyses WHERE project_id=p.id ORDER BY created_at DESC LIMIT 1) as last_status,
+                   (SELECT total_pages FROM analyses WHERE project_id=p.id AND status IN ('completed','stopped') ORDER BY completed_at DESC LIMIT 1) as total_pages,
                    (SELECT total_issues FROM analyses WHERE project_id=p.id AND status IN ('completed','stopped') ORDER BY completed_at DESC LIMIT 1) as total_issues,
                    (SELECT high_issues FROM analyses WHERE project_id=p.id AND status IN ('completed','stopped') ORDER BY completed_at DESC LIMIT 1) as high_issues,
+                   (SELECT medium_issues FROM analyses WHERE project_id=p.id AND status IN ('completed','stopped') ORDER BY completed_at DESC LIMIT 1) as medium_issues,
+                   (SELECT low_issues FROM analyses WHERE project_id=p.id AND status IN ('completed','stopped') ORDER BY completed_at DESC LIMIT 1) as low_issues,
                    (SELECT completed_at FROM analyses WHERE project_id=p.id AND status IN ('completed','stopped') ORDER BY completed_at DESC LIMIT 1) as last_analysis
             FROM projects p
             WHERE p.client_id = %s

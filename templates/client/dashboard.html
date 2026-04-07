@@ -85,7 +85,8 @@
               <div class="col-4">
                 <div class="client-stat bg-success-subtle rounded p-2">
                   <div class="fw-bold text-success">
-                    {% set score = [0, (100 - ((p.high_issues or 0) * 10 + (p.total_issues or 0) * 2))] | max %}
+                    {% set _tp = p.total_pages if p.total_pages and p.total_pages > 0 else 1 %}
+                    {% set score = [0, (100 - ((p.high_issues or 0) * 10 + (p.medium_issues or 0) * 5 + (p.low_issues or 0) * 2) / _tp * 2) | round | int] | max %}
                     {% set score = [score, 100] | min %}
                     {{ score }}
                   </div>
@@ -112,7 +113,7 @@
             {% endif %}
 
             <a href="{{ url_for('client_project_view', project_id=p.id) }}"
-               class="btn btn-primary w-100 {% if p.last_status != 'completed' %}disabled{% endif %}">
+               class="btn btn-primary w-100 {% if p.last_status not in ['completed', 'stopped'] %}disabled{% endif %}">
               <i class="bi bi-bar-chart-line me-2"></i>Ver Relatório Completo
             </a>
           </div>
