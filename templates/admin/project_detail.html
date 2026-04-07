@@ -481,8 +481,7 @@ let pollInterval = null;
 
 {% if latest_analysis and latest_analysis.status in ['pending', 'running'] %}
 currentAnalysisId = {{ latest_analysis.id }};
-startPolling();
-// Carrega páginas já analisadas imediatamente (caso seja um reload)
+startPolling("{{ latest_analysis.started_at.isoformat() if latest_analysis.started_at else '' }}");
 fetchLivePages();
 {% endif %}
 
@@ -634,10 +633,10 @@ function stopAnalysis(projectId) {
 let pollStartTime = null;
 let elapsedTimer = null;
 
-function startPolling() {
+function startPolling(startedAtIso) {
   if (pollInterval) clearInterval(pollInterval);
   if (elapsedTimer) clearInterval(elapsedTimer);
-  pollStartTime = Date.now();
+  pollStartTime = startedAtIso ? new Date(startedAtIso).getTime() : Date.now();
   pollInterval = setInterval(checkStatus, 3000);
   document.getElementById('btnRunAnalysis').disabled = true;
   document.getElementById('analysisProgress').classList.remove('d-none');
@@ -647,6 +646,8 @@ function startPolling() {
     document.getElementById('progressElapsed').textContent =
       m > 0 ? `${m}m ${s % 60}s` : `${s}s`;
   }, 1000);
+  // Run immediately instead of waiting first interval
+  checkStatus();
 }
 
 let _livePageIds = new Set();
