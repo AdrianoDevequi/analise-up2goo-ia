@@ -618,18 +618,24 @@ function stopAnalysis(projectId) {
   const btn = document.getElementById('btnStopAnalysis');
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Parando...';
+
+  // Force reload after 6s regardless — in case polling hangs
+  const forceReload = setTimeout(() => location.reload(), 6000);
+
   fetch('/admin/projetos/' + projectId + '/parar-analise', { method: 'POST' })
     .then(r => r.json())
     .then(data => {
       if (data.error) {
+        clearTimeout(forceReload);
         btn.disabled = false;
         btn.innerHTML = '<i class="bi bi-stop-fill me-1"></i>Parar';
       }
-      // polling vai detectar status=stopped e recarregar
+      // polling vai detectar status=stopped e recarregar; forceReload é fallback
     })
     .catch(() => {
-      btn.disabled = false;
-      btn.innerHTML = '<i class="bi bi-stop-fill me-1"></i>Parar';
+      // If request itself failed, reload immediately
+      clearTimeout(forceReload);
+      location.reload();
     });
 }
 
@@ -657,9 +663,13 @@ let _livePageIds = new Set();
 
 function checkStatus() {
   if (!currentAnalysisId) return;
-  fetch('/api/analysis/' + currentAnalysisId + '/status')
-    .then(r => r.json())
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 8000); // 8s timeout
+  fetch('/api/analysis/' + currentAnalysisId + '/status', { signal: ctrl.signal })
+    .then(r => { clearTimeout(t); return r.json(); })
+    .catch(() => { clearTimeout(t); }) // silent — next interval will retry
     .then(data => {
+      if (!data) return; // timeout/error — skip this cycle
       const pages = data.total_pages || 0;
       const issues = data.total_issues || 0;
       const expected = data.pages_expected || 0;
