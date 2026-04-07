@@ -1,0 +1,29 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "Flask App (Docker)",
+      "runtimeExecutable": "docker-compose",
+      "runtimeArgs": ["up", "--build", "app"],
+      "port": 5000
+    },
+    {
+      "name": "Flask App (Python)",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["app.py"],
+      "port": 5000
+    },
+    {
+      "name": "PostgreSQL (Docker)",
+      "runtimeExecutable": "docker-compose",
+      "runtimeArgs": ["up", "db"],
+      "port": 5432
+    },
+    {
+      "name": "Full Stack (Docker)",
+      "runtimeExecutable": "docker-compose",
+      "runtimeArgs": ["up", "--build"],
+      "port": 5000
+    }
+  ]
+}
