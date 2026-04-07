@@ -257,7 +257,7 @@ def admin_required(f):
 # Background analysis
 # ---------------------------------------------------------------------------
 
-def run_analysis_background(analysis_id, project_url, sitemap_url=None, use_playwright=False):
+def run_analysis_background(analysis_id, project_url, project_id=None, sitemap_url=None, use_playwright=False):
     """Runs the full crawl + SEO analysis in a background thread."""
     from crawler import fetch_page, fetch_page_playwright
     with get_thread_db() as conn:
@@ -353,6 +353,56 @@ def run_analysis_background(analysis_id, project_url, sitemap_url=None, use_play
                         conn.commit()
 
                         for url in url_list:
+                            # Skip if already analyzed in the last hour
+                            if project_id:
+                                cur.execute('''
+                                    SELECT pg.id, pg.title, pg.status_code, pg.word_count,
+                                           pg.load_time, pg.issue_count
+                                    FROM pages pg
+                                    JOIN analyses a ON a.id = pg.analysis_id
+                                    WHERE pg.url = %s
+                                      AND a.project_id = %s
+                                      AND a.id != %s
+                                      AND pg.analyzed_at > NOW() - INTERVAL '1 hour'
+                                    ORDER BY pg.analyzed_at DESC
+                                    LIMIT 1
+                                ''', (url, project_id, analysis_id))
+                                cached = cur.fetchone()
+                                if cached:
+                                    print(f'[ANALYSIS] Cache hit (< 1h): {url}')
+                                    # Copy page record
+                                    cur.execute(
+                                        '''INSERT INTO pages (analysis_id, url, title, status_code,
+                                               word_count, load_time, issue_count)
+                                           VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id''',
+                                        (analysis_id, url, cached['title'], cached['status_code'],
+                                         cached['word_count'], cached['load_time'], cached['issue_count'])
+                                    )
+                                    new_page_id = cur.fetchone()['id']
+                                    # Copy issues
+                                    cur.execute('SELECT * FROM issues WHERE page_id = %s', (cached['id'],))
+                                    for iss in cur.fetchall():
+                                        cur.execute(
+                                            '''INSERT INTO issues (page_id, category, severity, title,
+                                                   description, current_value, suggestion, ai_suggestion)
+                                               VALUES (%s, %s, %s, %s, %s, %s, %s, %s)''',
+                                            (new_page_id, iss['category'], iss['severity'], iss['title'],
+                                             iss['description'], iss['current_value'],
+                                             iss['suggestion'], iss['ai_suggestion'])
+                                        )
+                                        total_issues += 1
+                                        if iss['severity'] == 'high':     high_issues += 1
+                                        elif iss['severity'] == 'medium': medium_issues += 1
+                                        else:                              low_issues += 1
+                                    pages_done += 1
+                                    cur.execute('UPDATE analyses SET total_pages=%s, total_issues=%s WHERE id=%s',
+                                                (pages_done, total_issues, analysis_id))
+                                    conn.commit()
+                                    if analysis_id in _cancel_set:
+                                        _cancel_set.discard(analysis_id)
+                                        return
+                                    continue
+
                             try:
                                 page_data = fetch_fn(url)
                                 if not page_data:
@@ -874,6 +924,7 @@ def admin_run_analysis(project_id):
         target=run_analysis_background,
         args=(analysis_id, project['url']),
         kwargs={
+            'project_id': project_id,
             'sitemap_url': project.get('sitemap_url') or None,
             'use_playwright': bool(project.get('use_playwright')),
         },
