@@ -85,7 +85,30 @@ def get_thread_db():
 
 
 def init_db():
-    """Create tables and default admin user."""
+    """Create tables and default admin user. Retries until DB is reachable."""
+    import time
+
+    # Warn early if DATABASE_URL is missing in a non-local environment
+    if not os.environ.get('DATABASE_URL') and not os.environ.get('DB_HOST'):
+        print('[INIT] AVISO: DATABASE_URL não definida. '
+              'No Railway, adicione o plugin PostgreSQL ao projeto.')
+
+    max_attempts = 15
+    for attempt in range(1, max_attempts + 1):
+        try:
+            conn_test = psycopg2.connect(**get_db_config())
+            conn_test.close()
+            break
+        except psycopg2.OperationalError as e:
+            if attempt == max_attempts:
+                print(f'[INIT] Banco inacessível após {max_attempts} tentativas. Abortando.')
+                raise
+            wait = min(attempt * 2, 15)
+            print(f'[INIT] Banco não disponível (tentativa {attempt}/{max_attempts}). '
+                  f'Aguardando {wait}s... ({e})'.split('\n')[0])
+            time.sleep(wait)
+
+    print('[INIT] Banco de dados conectado.')
     with get_thread_db() as conn:
         with conn.cursor() as cur:
             cur.execute('''
