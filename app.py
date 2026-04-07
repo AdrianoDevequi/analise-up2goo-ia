@@ -1047,6 +1047,36 @@ def api_analysis_status(analysis_id):
     return jsonify(result)
 
 
+@app.route('/api/analysis/<int:analysis_id>/pages')
+@login_required
+def api_analysis_pages(analysis_id):
+    """Return pages already analyzed so far (used for live preview during running analysis)."""
+    db = get_db()
+    with db.cursor() as cur:
+        cur.execute(
+            'SELECT id FROM analyses WHERE id = %s',
+            (analysis_id,)
+        )
+        if not cur.fetchone():
+            return jsonify({'error': 'Não encontrado'}), 404
+
+        cur.execute('''
+            SELECT pg.id, pg.url, pg.title, pg.status_code, pg.load_time,
+                   COUNT(i.id) as total_issue_count,
+                   COUNT(CASE WHEN i.severity='high' THEN 1 END) as high_count,
+                   COUNT(CASE WHEN i.severity='medium' THEN 1 END) as medium_count,
+                   COUNT(CASE WHEN i.severity='low' THEN 1 END) as low_count
+            FROM pages pg
+            LEFT JOIN issues i ON i.page_id = pg.id
+            WHERE pg.analysis_id = %s
+            GROUP BY pg.id
+            ORDER BY pg.analyzed_at DESC
+        ''', (analysis_id,))
+        pages = [dict(r) for r in cur.fetchall()]
+
+    return jsonify({'pages': pages})
+
+
 # ---------------------------------------------------------------------------
 # Client routes
 # ---------------------------------------------------------------------------
