@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ project.name }} - Relatório SEO</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+  <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
+</head>
+<body class="client-body">
+
+  <nav class="client-navbar navbar">
+    <div class="container-lg">
+      <span class="navbar-brand fw-bold">
+        <i class="bi bi-graph-up-arrow me-2 text-primary"></i>Análise SEO
+      </span>
+      <div class="ms-auto d-flex align-items-center gap-3">
+        <a href="{{ url_for('client_dashboard') }}" class="btn btn-sm btn-outline-secondary">
+          <i class="bi bi-arrow-left me-1"></i>Voltar
+        </a>
+        <a href="{{ url_for('logout') }}" class="btn btn-sm btn-outline-secondary">
+          <i class="bi bi-box-arrow-left me-1"></i>Sair
+        </a>
+      </div>
+    </div>
+  </nav>
+
+  <div class="container-lg py-5">
+
+    <!-- Header -->
+    <div class="mb-5">
+      <h2 class="fw-bold mb-1">{{ project.name }}</h2>
+      <a href="{{ project.url }}" target="_blank" class="text-muted small text-decoration-none">
+        <i class="bi bi-globe me-1"></i>{{ project.url }}
+        <i class="bi bi-box-arrow-up-right ms-1" style="font-size:10px"></i>
+      </a>
+    </div>
+
+    {% if latest_analysis %}
+
+    <!-- Overall stats -->
+    <div class="row g-4 mb-5">
+      <div class="col-6 col-md-3">
+        <div class="client-stat-card text-center p-4">
+          <div class="stat-big text-primary">{{ latest_analysis.total_pages }}</div>
+          <div class="small text-muted mt-1">Páginas analisadas</div>
+        </div>
+      </div>
+      <div class="col-6 col-md-3">
+        <div class="client-stat-card text-center p-4">
+          <div class="stat-big text-danger">{{ latest_analysis.high_issues }}</div>
+          <div class="small text-muted mt-1">Problemas críticos</div>
+        </div>
+      </div>
+      <div class="col-6 col-md-3">
+        <div class="client-stat-card text-center p-4">
+          <div class="stat-big text-warning">{{ latest_analysis.medium_issues }}</div>
+          <div class="small text-muted mt-1">Melhorias médias</div>
+        </div>
+      </div>
+      <div class="col-6 col-md-3">
+        {% set total_score = [0, (100 - (latest_analysis.high_issues * 10 + latest_analysis.medium_issues * 5 + latest_analysis.low_issues * 2))] | max %}
+        {% set total_score = [total_score, 100] | min %}
+        <div class="client-stat-card text-center p-4">
+          <div class="stat-big {% if total_score >= 70 %}text-success{% elif total_score >= 40 %}text-warning{% else %}text-danger{% endif %}">
+            {{ total_score }}
+          </div>
+          <div class="small text-muted mt-1">Score geral /100</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Pages list -->
+    {% if pages_data %}
+    <div class="card shadow-sm border-0">
+      <div class="card-header bg-white border-bottom py-3">
+        <h5 class="mb-0 fw-semibold">
+          <i class="bi bi-files me-2 text-primary"></i>
+          Páginas do Site ({{ pages_data | length }})
+        </h5>
+        <p class="small text-muted mb-0 mt-1">Clique em qualquer página para ver as sugestões de melhoria detalhadas.</p>
+      </div>
+      <div class="card-body p-0">
+        {% for page in pages_data %}
+          {% set score = [0, (100 - (page.high_count * 15 + page.medium_count * 8 + page.low_count * 3))] | max %}
+          {% set score = [score, 100] | min %}
+          {% if score >= 80 %}{% set grade = 'A' %}{% set grade_cls = 'success' %}
+          {% elif score >= 60 %}{% set grade = 'B' %}{% set grade_cls = 'primary' %}
+          {% elif score >= 40 %}{% set grade = 'C' %}{% set grade_cls = 'warning' %}
+          {% elif score >= 20 %}{% set grade = 'D' %}{% set grade_cls = 'orange' %}
+          {% else %}{% set grade = 'F' %}{% set grade_cls = 'danger' %}{% endif %}
+
+          <div class="page-row" onclick="loadIssues({{ page.id }}, '{{ page.url | replace("'", "\\'") }}', '{{ page.title | replace("'", "\\'") }}')"
+               role="button">
+            <div class="d-flex align-items-center gap-3 p-3 border-bottom page-row-inner">
+
+              <!-- Grade badge -->
+              <div class="grade-badge grade-{{ grade_cls }}">{{ grade }}</div>
+
+              <!-- Page info -->
+              <div class="flex-grow-1 min-w-0">
+                <div class="fw-semibold text-truncate small mb-1">
+                  {{ page.title or '(sem título)' }}
+                </div>
+                <div class="text-muted text-truncate" style="font-size:12px">
+                  {{ page.url }}
+                </div>
+              </div>
+
+              <!-- Score bar -->
+              <div class="page-score-area d-none d-md-block">
+                <div class="d-flex justify-content-between align-items-center mb-1">
+                  <span class="small fw-semibold text-{{ grade_cls if grade_cls != 'orange' else 'warning' }}">{{ score }}/100</span>
+                </div>
+                <div class="progress page-score-bar">
+                  <div class="progress-bar bg-{{ grade_cls if grade_cls != 'orange' else 'warning' }}"
+                       style="width:{{ score }}%"></div>
+                </div>
+              </div>
+
+              <!-- Issues chips -->
+              <div class="d-flex gap-1 align-items-center flex-shrink-0">
+                {% if page.high_count > 0 %}
+                <span class="badge bg-danger-subtle text-danger" title="Críticos">
+                  <i class="bi bi-exclamation-triangle-fill me-1"></i>{{ page.high_count }}
+                </span>
+                {% endif %}
+                {% if page.medium_count > 0 %}
+                <span class="badge bg-warning-subtle text-warning" title="Médios">
+                  <i class="bi bi-exclamation-circle-fill me-1"></i>{{ page.medium_count }}
+                </span>
+                {% endif %}
+                {% if page.low_count > 0 %}
+                <span class="badge bg-secondary-subtle text-secondary" title="Baixos">
+                  <i class="bi bi-info-circle-fill me-1"></i>{{ page.low_count }}
+                </span>
+                {% endif %}
+                {% if page.issue_count == 0 %}
+                <span class="badge bg-success-subtle text-success">
+                  <i class="bi bi-check-circle-fill me-1"></i>Ótimo
+                </span>
+                {% endif %}
+              </div>
+
+              <i class="bi bi-chevron-right text-muted flex-shrink-0"></i>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+
+    <p class="small text-muted text-center mt-3">
+      <i class="bi bi-clock me-1"></i>
+      Análise realizada em {{ latest_analysis.completed_at.strftime('%d/%m/%Y às %H:%M') if latest_analysis.completed_at else '' }}
+    </p>
+
+    {% endif %}
+
+    {% else %}
+    <div class="text-center py-5 text-muted">
+      <i class="bi bi-hourglass-split display-4 d-block mb-3 opacity-25"></i>
+      <p class="fw-semibold">Análise ainda não foi realizada.</p>
+      <p class="small">Aguarde seu gestor iniciar a análise do projeto.</p>
+    </div>
+    {% endif %}
+
+  </div>
+
+<!-- Issues Drawer Modal -->
+<div class="modal fade" id="issuesModal" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable modal-dialog-centered">
+    <div class="modal-content border-0 shadow">
+      <div class="modal-header border-0 pb-0">
+        <div class="flex-grow-1 min-w-0 pe-3">
+          <h5 class="modal-title fw-bold mb-1" id="modalTitle">Sugestões de Melhoria</h5>
+          <p class="small text-muted text-truncate mb-0" id="modalUrl"></p>
+        </div>
+        <button type="button" class="btn-close flex-shrink-0" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body pt-3" id="issuesBody">
+        <div class="text-center py-5">
+          <div class="spinner-border text-primary mb-3"></div>
+          <p class="text-muted small">Carregando sugestões...</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+const PROJECT_ID = {{ project.id }};
+
+function loadIssues(pageId, pageUrl, pageTitle) {
+  document.getElementById('modalTitle').textContent = pageTitle || 'Sugestões de Melhoria';
+  document.getElementById('modalUrl').textContent = pageUrl;
+  document.getElementById('issuesBody').innerHTML =
+    '<div class="text-center py-5"><div class="spinner-border text-primary mb-3"></div><p class="text-muted small">Carregando sugestões...</p></div>';
+
+  new bootstrap.Modal(document.getElementById('issuesModal')).show();
+
+  fetch(`/cliente/projeto/${PROJECT_ID}/pagina/${pageId}`)
+    .then(r => r.json())
+    .then(data => renderIssues(data.issues))
+    .catch(() => {
+      document.getElementById('issuesBody').innerHTML =
+        '<div class="text-center py-4 text-danger"><i class="bi bi-exclamation-triangle fs-1 d-block mb-2"></i>Erro ao carregar. Tente novamente.</div>';
+    });
+}
+
+function renderIssues(issues) {
+  if (!issues || issues.length === 0) {
+    document.getElementById('issuesBody').innerHTML = `
+      <div class="text-center py-5">
+        <i class="bi bi-check-circle-fill text-success display-4 d-block mb-3"></i>
+        <p class="fw-semibold text-success">Ótimo! Nenhum problema encontrado nesta página.</p>
+      </div>`;
+    return;
+  }
+
+  const sevConfig = {
+    high:   { label: 'Crítico',  cls: 'danger',    icon: 'bi-exclamation-triangle-fill', bg: 'bg-danger-subtle' },
+    medium: { label: 'Médio',    cls: 'warning',   icon: 'bi-exclamation-circle-fill',   bg: 'bg-warning-subtle' },
+    low:    { label: 'Baixo',    cls: 'secondary', icon: 'bi-info-circle-fill',          bg: 'bg-secondary-subtle' }
+  };
+
+  const catLabels = {
+    title: 'Título',  meta: 'Meta Description', heading: 'Títulos (H1/H2)',
+    content: 'Conteúdo', image: 'Imagens', social: 'Redes Sociais',
+    technical: 'Técnico', links: 'Links'
+  };
+
+  const catIcon = {
+    title: 'bi-type-h1', meta: 'bi-card-text', heading: 'bi-text-paragraph',
+    content: 'bi-file-text', image: 'bi-image', social: 'bi-share',
+    technical: 'bi-gear', links: 'bi-link-45deg'
+  };
+
+  // Group by severity
+  const grouped = { high: [], medium: [], low: [] };
+  for (const issue of issues) {
+    if (grouped[issue.severity]) grouped[issue.severity].push(issue);
+    else grouped.low.push(issue);
+  }
+
+  let html = '';
+
+  for (const sev of ['high', 'medium', 'low']) {
+    if (!grouped[sev].length) continue;
+    const cfg = sevConfig[sev];
+
+    html += `<div class="mb-4">
+      <div class="d-flex align-items-center gap-2 mb-3">
+        <i class="bi ${cfg.icon} text-${cfg.cls}"></i>
+        <span class="fw-semibold text-${cfg.cls}">${cfg.label}s (${grouped[sev].length})</span>
+      </div>`;
+
+    for (const issue of grouped[sev]) {
+      let aiSection = '';
+      if (issue.ai_suggestion) {
+        try {
+          const ai = typeof issue.ai_suggestion === 'string'
+            ? JSON.parse(issue.ai_suggestion) : issue.ai_suggestion;
+
+          const fields = [
+            ai.titulo          ? `<div class="mb-2"><span class="fw-semibold">Título sugerido:</span><br><span class="text-dark">"${ai.titulo}"</span></div>` : '',
+            ai.meta_description? `<div class="mb-2"><span class="fw-semibold">Meta description:</span><br><span class="text-dark">"${ai.meta_description}"</span></div>` : '',
+            ai.h1              ? `<div class="mb-2"><span class="fw-semibold">H1 sugerido:</span><br><span class="text-dark">"${ai.h1}"</span></div>` : '',
+            ai.dica_conteudo   ? `<div class="mb-2"><span class="fw-semibold">Melhoria de conteúdo:</span><br><span class="text-dark">${ai.dica_conteudo}</span></div>` : '',
+            ai.palavras_chave  ? `<div class="mb-0"><span class="fw-semibold">Palavras-chave:</span> ${ai.palavras_chave.map(k=>`<span class="badge bg-primary-subtle text-primary me-1">${k}</span>`).join('')}</div>` : ''
+          ].filter(Boolean).join('');
+
+          if (fields) {
+            aiSection = `
+              <div class="ai-suggestion-box mt-3">
+                <div class="ai-suggestion-header">
+                  <i class="bi bi-stars me-2"></i>Sugestão gerada por IA
+                </div>
+                <div class="ai-suggestion-body small">${fields}</div>
+              </div>`;
+          }
+        } catch(e) {}
+      }
+
+      html += `
+        <div class="issue-card mb-3">
+          <div class="d-flex gap-3">
+            <div class="issue-icon-wrap bg-${cfg.cls}-subtle flex-shrink-0">
+              <i class="bi ${catIcon[issue.category] || 'bi-dot'} text-${cfg.cls}"></i>
+            </div>
+            <div class="flex-grow-1">
+              <div class="d-flex align-items-center gap-2 mb-1 flex-wrap">
+                <span class="fw-semibold">${issue.title}</span>
+                <span class="badge bg-${cfg.cls}-subtle text-${cfg.cls} border-0">${cfg.label}</span>
+                <span class="badge bg-light text-muted border-0">${catLabels[issue.category] || issue.category}</span>
+              </div>
+              <p class="small text-muted mb-2">${issue.description || ''}</p>
+              ${issue.current_value ? `<div class="small mb-2 text-muted"><strong>Situação atual:</strong> <code class="text-dark">${issue.current_value}</code></div>` : ''}
+              ${issue.suggestion ? `
+              <div class="suggestion-box">
+                <i class="bi bi-lightbulb-fill text-warning me-2"></i>
+                <span class="small">${issue.suggestion}</span>
+              </div>` : ''}
+              ${aiSection}
+            </div>
+          </div>
+        </div>`;
+    }
+
+    html += '</div>';
+  }
+
+  document.getElementById('issuesBody').innerHTML = html;
+}
+</script>
+</body>
+</html>

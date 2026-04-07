@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Meus Projetos - Análise SEO</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+  <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
+</head>
+<body class="client-body">
+
+  <nav class="client-navbar navbar navbar-expand-lg">
+    <div class="container-lg">
+      <span class="navbar-brand fw-bold">
+        <i class="bi bi-graph-up-arrow me-2 text-primary"></i>Análise SEO
+      </span>
+      <div class="ms-auto d-flex align-items-center gap-3">
+        <span class="text-muted small"><i class="bi bi-person-circle me-1"></i>{{ session.name }}</span>
+        <a href="{{ url_for('logout') }}" class="btn btn-sm btn-outline-secondary">
+          <i class="bi bi-box-arrow-left me-1"></i>Sair
+        </a>
+      </div>
+    </div>
+  </nav>
+
+  <div class="container-lg py-5">
+
+    <div class="mb-5">
+      <h2 class="fw-bold mb-1">Olá, {{ session.name.split()[0] }}!</h2>
+      <p class="text-muted">Acompanhe a análise SEO do seu site aqui.</p>
+    </div>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for category, message in messages %}
+        <div class="alert alert-{{ category }} alert-dismissible fade show">
+          {{ message }}<button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+      {% endfor %}
+    {% endwith %}
+
+    {% if projects %}
+    <div class="row g-4">
+      {% for p in projects %}
+      <div class="col-md-6 col-xl-4">
+        <div class="card client-project-card shadow-sm border-0 h-100">
+          <div class="card-body p-4">
+            <div class="d-flex justify-content-between align-items-start mb-3">
+              <h5 class="fw-bold mb-0">{{ p.name }}</h5>
+              {% if p.last_status == 'completed' %}
+                <span class="badge bg-success-subtle text-success">Analisado</span>
+              {% elif p.last_status == 'running' %}
+                <span class="badge bg-warning-subtle text-warning">Em andamento</span>
+              {% else %}
+                <span class="badge bg-secondary-subtle text-secondary">Aguardando</span>
+              {% endif %}
+            </div>
+
+            <a href="{{ p.url }}" target="_blank" class="small text-muted text-decoration-none d-block mb-4 text-truncate">
+              <i class="bi bi-globe me-1"></i>{{ p.url }}
+            </a>
+
+            {% if p.last_status == 'completed' and p.total_issues is not none %}
+            <div class="row g-2 text-center mb-4">
+              <div class="col-4">
+                <div class="client-stat bg-danger-subtle rounded p-2">
+                  <div class="fw-bold text-danger">{{ p.high_issues or 0 }}</div>
+                  <div class="tiny text-muted">Críticos</div>
+                </div>
+              </div>
+              <div class="col-4">
+                <div class="client-stat bg-light rounded p-2">
+                  <div class="fw-bold text-dark">{{ p.total_issues }}</div>
+                  <div class="tiny text-muted">Total</div>
+                </div>
+              </div>
+              <div class="col-4">
+                <div class="client-stat bg-success-subtle rounded p-2">
+                  <div class="fw-bold text-success">
+                    {% set score = [0, (100 - ((p.high_issues or 0) * 10 + (p.total_issues or 0) * 2))] | max %}
+                    {% set score = [score, 100] | min %}
+                    {{ score }}
+                  </div>
+                  <div class="tiny text-muted">Score</div>
+                </div>
+              </div>
+            </div>
+            {% elif p.last_status == 'running' %}
+            <div class="text-center py-3 mb-4">
+              <div class="spinner-border spinner-border-sm text-warning me-2"></div>
+              <span class="small text-muted">Análise em andamento...</span>
+            </div>
+            {% else %}
+            <div class="text-center py-3 mb-4 text-muted">
+              <i class="bi bi-hourglass d-block mb-1"></i>
+              <span class="small">Aguardando primeira análise</span>
+            </div>
+            {% endif %}
+
+            {% if p.last_analysis %}
+            <div class="small text-muted mb-3">
+              <i class="bi bi-clock me-1"></i>Última análise: {{ p.last_analysis.strftime('%d/%m/%Y às %H:%M') }}
+            </div>
+            {% endif %}
+
+            <a href="{{ url_for('client_project_view', project_id=p.id) }}"
+               class="btn btn-primary w-100 {% if p.last_status != 'completed' %}disabled{% endif %}">
+              <i class="bi bi-bar-chart-line me-2"></i>Ver Relatório Completo
+            </a>
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+
+    {% else %}
+    <div class="text-center py-5 text-muted">
+      <i class="bi bi-hourglass-split display-4 d-block mb-3 opacity-25"></i>
+      <p class="fw-semibold">Nenhum projeto disponível ainda.</p>
+      <p class="small">Aguarde seu gestor cadastrar um projeto para você.</p>
+    </div>
+    {% endif %}
+
+  </div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

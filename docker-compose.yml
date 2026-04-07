@@ -1,0 +1,40 @@
+version: '3.9'
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: analise_ia_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-analise_ia}
+      POSTGRES_USER: ${DB_USER:-analise_user}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-analise_pass123}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-analise_user} -d ${DB_NAME:-analise_ia}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build: .
+    container_name: analise_ia_app
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "5000:5000"
+    env_file:
+      - .env
+    environment:
+      DB_HOST: db
+      DB_PORT: 5432
+    volumes:
+      - .:/app
+
+volumes:
+  postgres_data:

@@ -1,0 +1,38 @@
+<div class="sidebar" id="sidebar">
+  <div class="sidebar-brand">
+    <i class="bi bi-graph-up-arrow"></i>
+    <span>Análise SEO</span>
+  </div>
+
+  <nav class="sidebar-nav">
+    <div class="nav-section-label">Menu</div>
+    <a href="{{ url_for('admin_dashboard') }}"
+       class="nav-item {% if request.endpoint == 'admin_dashboard' %}active{% endif %}">
+      <i class="bi bi-speedometer2"></i>
+      <span>Dashboard</span>
+    </a>
+    <a href="{{ url_for('admin_projects') }}"
+       class="nav-item {% if 'project' in request.endpoint %}active{% endif %}">
+      <i class="bi bi-folder2-open"></i>
+      <span>Projetos</span>
+    </a>
+    <a href="{{ url_for('admin_new_project') }}" class="nav-item">
+      <i class="bi bi-plus-circle"></i>
+      <span>Novo Projeto</span>
+    </a>
+  </nav>
+
+  <div class="sidebar-footer">
+    <div class="sidebar-user">
+      <div class="avatar-sm">{{ session.name[0].upper() }}</div>
+      <div class="sidebar-user-info">
+        <div class="fw-semibold small">{{ session.name }}</div>
+        <div class="text-muted" style="font-size:11px">Administrador</div>
+      </div>
+    </div>
+    <a href="{{ url_for('logout') }}" class="btn btn-sm btn-outline-secondary w-100 mt-2">
+      <i class="bi bi-box-arrow-left me-1"></i>Sair
+    </a>
+  </div>
+</div>
+<div class="sidebar-overlay" id="sidebarOverlay" onclick="toggleSidebar()"></div>

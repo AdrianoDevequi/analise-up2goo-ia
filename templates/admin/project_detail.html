@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ project.name }} - Admin</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+  <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
+</head>
+<body class="admin-body">
+
+{% include 'admin/_sidebar.html' %}
+
+<div class="main-content">
+  {% include 'admin/_topbar.html' %}
+  <div class="content-area">
+
+    <div class="mb-4">
+      <a href="{{ url_for('admin_projects') }}" class="btn btn-sm btn-outline-secondary mb-3">
+        <i class="bi bi-arrow-left me-1"></i>Voltar aos Projetos
+      </a>
+      <div class="d-flex justify-content-between align-items-start flex-wrap gap-3">
+        <div>
+          <h2 class="page-title mb-1">{{ project.name }}</h2>
+          <a href="{{ project.url }}" target="_blank" class="text-muted small text-decoration-none">
+            <i class="bi bi-globe me-1"></i>{{ project.url }}
+            <i class="bi bi-box-arrow-up-right ms-1" style="font-size:10px"></i>
+          </a>
+        </div>
+        <button class="btn btn-primary" id="btnRunAnalysis" onclick="runAnalysis({{ project.id }})">
+          <i class="bi bi-play-circle me-2"></i>Iniciar Nova Análise
+        </button>
+      </div>
+    </div>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for category, message in messages %}
+        <div class="alert alert-{{ category }} alert-dismissible fade show">
+          {{ message }}<button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+      {% endfor %}
+    {% endwith %}
+
+    <!-- Analysis running indicator -->
+    <div id="analysisProgress" class="alert alert-warning d-none border-0">
+      <div class="d-flex align-items-center gap-3">
+        <div class="spinner-border spinner-border-sm text-warning" role="status"></div>
+        <div>
+          <strong>Análise em andamento...</strong>
+          <div class="small" id="progressText">Iniciando rastreamento das páginas.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="row g-4">
+      <!-- Client credentials -->
+      <div class="col-lg-4">
+        <div class="card shadow-sm border-0 h-100">
+          <div class="card-header bg-white border-bottom py-3">
+            <h6 class="mb-0 fw-semibold"><i class="bi bi-person-badge me-2 text-primary"></i>Acesso do Cliente</h6>
+          </div>
+          <div class="card-body">
+            <div class="mb-3">
+              <label class="small text-muted fw-semibold d-block mb-1">NOME</label>
+              <div class="fw-semibold">{{ project.client_name }}</div>
+            </div>
+            <div class="mb-3">
+              <label class="small text-muted fw-semibold d-block mb-1">E-MAIL (LOGIN)</label>
+              <div class="d-flex align-items-center gap-2">
+                <code class="text-primary">{{ project.client_email }}</code>
+                <button class="btn btn-sm btn-outline-secondary py-0 px-1" title="Copiar"
+                        onclick="copyText('{{ project.client_email }}')">
+                  <i class="bi bi-copy" style="font-size:12px"></i>
+                </button>
+              </div>
+            </div>
+            <div class="mb-3">
+              <label class="small text-muted fw-semibold d-block mb-1">SENHA</label>
+              <div class="d-flex align-items-center gap-2">
+                <code class="text-primary" id="passDisplay">{{ project.plain_password or '••••••••' }}</code>
+                {% if project.plain_password %}
+                <button class="btn btn-sm btn-outline-secondary py-0 px-1" title="Copiar"
+                        onclick="copyText('{{ project.plain_password }}')">
+                  <i class="bi bi-copy" style="font-size:12px"></i>
+                </button>
+                {% endif %}
+              </div>
+            </div>
+            <hr>
+            <div class="small text-muted">
+              <i class="bi bi-info-circle me-1"></i>
+              Compartilhe estas credenciais com o cliente para que ele acesse o relatório.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Analysis summary -->
+      <div class="col-lg-8">
+        {% if latest_analysis and latest_analysis.status == 'completed' %}
+        <div class="card shadow-sm border-0">
+          <div class="card-header bg-white border-bottom py-3 d-flex justify-content-between align-items-center">
+            <h6 class="mb-0 fw-semibold"><i class="bi bi-bar-chart me-2 text-primary"></i>Última Análise</h6>
+            <span class="small text-muted">
+              {{ latest_analysis.completed_at.strftime('%d/%m/%Y às %H:%M') if latest_analysis.completed_at else '' }}
+            </span>
+          </div>
+          <div class="card-body">
+            <div class="row g-3 text-center mb-3">
+              <div class="col-3">
+                <div class="stat-mini">
+                  <div class="stat-mini-value text-primary">{{ latest_analysis.total_pages }}</div>
+                  <div class="stat-mini-label">Páginas</div>
+                </div>
+              </div>
+              <div class="col-3">
+                <div class="stat-mini">
+                  <div class="stat-mini-value text-danger">{{ latest_analysis.high_issues }}</div>
+                  <div class="stat-mini-label">Críticos</div>
+                </div>
+              </div>
+              <div class="col-3">
+                <div class="stat-mini">
+                  <div class="stat-mini-value text-warning">{{ latest_analysis.medium_issues }}</div>
+                  <div class="stat-mini-label">Médios</div>
+                </div>
+              </div>
+              <div class="col-3">
+                <div class="stat-mini">
+                  <div class="stat-mini-value text-info">{{ latest_analysis.low_issues }}</div>
+                  <div class="stat-mini-label">Baixos</div>
+                </div>
+              </div>
+            </div>
+            <!-- Score bar -->
+            {% set score = [0, (100 - ((latest_analysis.high_issues * 10 + latest_analysis.medium_issues * 5 + latest_analysis.low_issues * 2)))] | max %}
+            {% set score = [score, 100] | min %}
+            <div class="d-flex justify-content-between align-items-center mb-1">
+              <small class="text-muted fw-semibold">Score SEO</small>
+              <small class="fw-bold {% if score >= 70 %}text-success{% elif score >= 40 %}text-warning{% else %}text-danger{% endif %}">
+                {{ score }}/100
+              </small>
+            </div>
+            <div class="progress" style="height:8px">
+              <div class="progress-bar {% if score >= 70 %}bg-success{% elif score >= 40 %}bg-warning{% else %}bg-danger{% endif %}"
+                   style="width:{{ score }}%"></div>
+            </div>
+          </div>
+        </div>
+        {% elif latest_analysis and latest_analysis.status == 'running' %}
+        <div class="card shadow-sm border-0">
+          <div class="card-body text-center py-5">
+            <div class="spinner-border text-primary mb-3"></div>
+            <p class="fw-semibold">Análise em andamento...</p>
+            <p class="text-muted small">As páginas estão sendo rastreadas e analisadas.</p>
+          </div>
+        </div>
+        {% elif latest_analysis and latest_analysis.status == 'error' %}
+        <div class="card shadow-sm border-0 border-danger">
+          <div class="card-body py-4">
+            <div class="d-flex gap-3 align-items-start">
+              <i class="bi bi-exclamation-triangle-fill text-danger fs-4"></i>
+              <div>
+                <div class="fw-semibold text-danger mb-1">Erro na análise</div>
+                <div class="small text-muted">{{ latest_analysis.error_message }}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        {% else %}
+        <div class="card shadow-sm border-0">
+          <div class="card-body text-center py-5 text-muted">
+            <i class="bi bi-bar-chart display-4 d-block mb-3 opacity-25"></i>
+            <p class="fw-semibold">Nenhuma análise realizada</p>
+            <p class="small">Clique em <strong>Iniciar Nova Análise</strong> para começar.</p>
+          </div>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Pages list -->
+    {% if pages_data %}
+    <div class="card shadow-sm border-0 mt-4">
+      <div class="card-header bg-white border-bottom py-3">
+        <h6 class="mb-0 fw-semibold">
+          <i class="bi bi-file-earmark-text me-2 text-primary"></i>
+          Páginas Analisadas ({{ pages_data | length }})
+        </h6>
+      </div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-hover align-middle mb-0">
+            <thead class="table-light">
+              <tr>
+                <th class="px-4">URL</th>
+                <th>Título</th>
+                <th class="text-center">Palavras</th>
+                <th class="text-center">Status HTTP</th>
+                <th class="text-center">Problemas</th>
+                <th class="text-end px-4">Detalhes</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for page in pages_data %}
+              <tr>
+                <td class="px-4">
+                  <a href="{{ page.url }}" target="_blank"
+                     class="text-decoration-none small text-truncate d-inline-block text-primary"
+                     style="max-width:240px" title="{{ page.url }}">
+                    {{ page.url }}
+                  </a>
+                </td>
+                <td class="small text-muted text-truncate" style="max-width:200px" title="{{ page.title }}">
+                  {{ page.title or '(sem título)' }}
+                </td>
+                <td class="text-center small">{{ page.word_count }}</td>
+                <td class="text-center">
+                  {% if page.status_code == 200 %}
+                    <span class="badge bg-success-subtle text-success">{{ page.status_code }}</span>
+                  {% elif page.status_code >= 300 and page.status_code < 400 %}
+                    <span class="badge bg-info-subtle text-info">{{ page.status_code }}</span>
+                  {% elif page.status_code >= 400 %}
+                    <span class="badge bg-danger-subtle text-danger">{{ page.status_code }}</span>
+                  {% else %}
+                    <span class="badge bg-secondary-subtle text-secondary">{{ page.status_code }}</span>
+                  {% endif %}
+                </td>
+                <td class="text-center">
+                  {% if page.issue_count > 0 %}
+                  <span class="badge {% if page.issue_count >= 5 %}bg-danger{% elif page.issue_count >= 3 %}bg-warning text-dark{% else %}bg-secondary{% endif %}">
+                    {{ page.issue_count }}
+                  </span>
+                  {% else %}
+                  <span class="badge bg-success-subtle text-success"><i class="bi bi-check-lg"></i></span>
+                  {% endif %}
+                </td>
+                <td class="text-end px-4">
+                  <button class="btn btn-sm btn-outline-primary"
+                          onclick="loadPageIssues({{ latest_analysis.id }}, {{ page.id }}, '{{ page.url | replace("'", "\\'") }}')">
+                    <i class="bi bi-search me-1"></i>Ver
+                  </button>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
+  </div>
+</div>
+
+<!-- Issues Modal -->
+<div class="modal fade" id="issuesModal" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header border-0 pb-0">
+        <div>
+          <h5 class="modal-title fw-semibold">Problemas da Página</h5>
+          <p class="small text-muted mb-0" id="modalPageUrl"></p>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" id="issuesModalBody">
+        <div class="text-center py-4"><div class="spinner-border text-primary"></div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<script src="{{ url_for('static', filename='js/main.js') }}"></script>
+<script>
+let currentAnalysisId = null;
+let pollInterval = null;
+
+{% if latest_analysis and latest_analysis.status in ['pending', 'running'] %}
+currentAnalysisId = {{ latest_analysis.id }};
+startPolling();
+{% endif %}
+
+function runAnalysis(projectId) {
+  const btn = document.getElementById('btnRunAnalysis');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Iniciando...';
+  document.getElementById('analysisProgress').classList.remove('d-none');
+
+  fetch('/admin/projetos/' + projectId + '/analisar', { method: 'POST' })
+    .then(r => r.json())
+    .then(data => {
+      if (data.error) {
+        alert(data.error);
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-play-circle me-2"></i>Iniciar Nova Análise';
+        document.getElementById('analysisProgress').classList.add('d-none');
+        return;
+      }
+      currentAnalysisId = data.analysis_id;
+      startPolling();
+    })
+    .catch(() => {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="bi bi-play-circle me-2"></i>Iniciar Nova Análise';
+    });
+}
+
+function startPolling() {
+  if (pollInterval) clearInterval(pollInterval);
+  pollInterval = setInterval(checkStatus, 4000);
+  document.getElementById('btnRunAnalysis').disabled = true;
+}
+
+function checkStatus() {
+  if (!currentAnalysisId) return;
+  fetch('/api/analysis/' + currentAnalysisId + '/status')
+    .then(r => r.json())
+    .then(data => {
+      document.getElementById('progressText').textContent =
+        'Páginas analisadas: ' + (data.total_pages || 0) + ' | Problemas: ' + (data.total_issues || 0);
+
+      if (data.status === 'completed' || data.status === 'error') {
+        clearInterval(pollInterval);
+        location.reload();
+      }
+    });
+}
+
+function loadPageIssues(analysisId, pageId, pageUrl) {
+  document.getElementById('modalPageUrl').textContent = pageUrl;
+  document.getElementById('issuesModalBody').innerHTML =
+    '<div class="text-center py-4"><div class="spinner-border text-primary"></div></div>';
+  new bootstrap.Modal(document.getElementById('issuesModal')).show();
+
+  fetch('/admin/analise/' + analysisId + '/pagina/' + pageId)
+    .then(r => r.json())
+    .then(data => renderIssues(data.issues, 'issuesModalBody'));
+}
+
+function renderIssues(issues, containerId) {
+  if (!issues.length) {
+    document.getElementById(containerId).innerHTML =
+      '<div class="text-center py-4 text-success"><i class="bi bi-check-circle-fill fs-1 d-block mb-2"></i>Nenhum problema encontrado!</div>';
+    return;
+  }
+
+  const severityMap = {
+    high: { label: 'Crítico', cls: 'danger', icon: 'bi-exclamation-triangle-fill' },
+    medium: { label: 'Médio', cls: 'warning', icon: 'bi-exclamation-circle-fill' },
+    low: { label: 'Baixo', cls: 'info', icon: 'bi-info-circle-fill' }
+  };
+
+  const categoryIcon = {
+    title: 'bi-type-h1', meta: 'bi-card-text', heading: 'bi-text-paragraph',
+    content: 'bi-file-text', image: 'bi-image', social: 'bi-share',
+    technical: 'bi-gear', links: 'bi-link-45deg'
+  };
+
+  let html = '';
+  for (const issue of issues) {
+    const sev = severityMap[issue.severity] || severityMap.low;
+    const icon = categoryIcon[issue.category] || 'bi-dot';
+    let aiHtml = '';
+    if (issue.ai_suggestion) {
+      try {
+        const ai = typeof issue.ai_suggestion === 'string'
+          ? JSON.parse(issue.ai_suggestion) : issue.ai_suggestion;
+        aiHtml = `<div class="mt-2 p-2 rounded bg-primary-subtle border border-primary-subtle">
+          <div class="small fw-semibold text-primary mb-1"><i class="bi bi-stars me-1"></i>Sugestão IA</div>
+          ${ai.titulo ? `<div class="small"><strong>Título:</strong> ${ai.titulo}</div>` : ''}
+          ${ai.meta_description ? `<div class="small"><strong>Meta:</strong> ${ai.meta_description}</div>` : ''}
+          ${ai.h1 ? `<div class="small"><strong>H1:</strong> ${ai.h1}</div>` : ''}
+          ${ai.dica_conteudo ? `<div class="small"><strong>Conteúdo:</strong> ${ai.dica_conteudo}</div>` : ''}
+        </div>`;
+      } catch(e) {}
+    }
+    html += `
+      <div class="issue-item mb-3">
+        <div class="d-flex gap-3 align-items-start">
+          <div class="issue-severity-dot bg-${sev.cls}">
+            <i class="bi ${icon} text-white" style="font-size:13px"></i>
+          </div>
+          <div class="flex-grow-1">
+            <div class="d-flex align-items-center gap-2 mb-1">
+              <span class="fw-semibold">${issue.title}</span>
+              <span class="badge bg-${sev.cls}-subtle text-${sev.cls} border-0">${sev.label}</span>
+            </div>
+            <p class="small text-muted mb-1">${issue.description || ''}</p>
+            ${issue.current_value ? `<div class="small mb-1"><strong>Atual:</strong> <span class="text-muted font-monospace">${issue.current_value}</span></div>` : ''}
+            ${issue.suggestion ? `<div class="small p-2 rounded bg-success-subtle"><i class="bi bi-lightbulb-fill text-success me-1"></i>${issue.suggestion}</div>` : ''}
+            ${aiHtml}
+          </div>
+        </div>
+      </div>`;
+  }
+  document.getElementById(containerId).innerHTML = html;
+}
+
+function copyText(text) {
+  navigator.clipboard.writeText(text).then(() => {
+    const tooltip = document.createElement('span');
+    tooltip.textContent = 'Copiado!';
+    tooltip.className = 'badge bg-success ms-2';
+    event.target.closest('button').after(tooltip);
+    setTimeout(() => tooltip.remove(), 2000);
+  });
+}
+</script>
+</body>
+</html>
