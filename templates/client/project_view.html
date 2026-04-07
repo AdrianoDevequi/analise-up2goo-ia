@@ -483,6 +483,8 @@ function loadIssues(pageId, pageUrl, pageTitle) {
     });
 }
 
+const _issueMap = {};
+
 function renderIssues(issues) {
   if (!issues || issues.length === 0) {
     document.getElementById('issuesBody').innerHTML = `
@@ -531,6 +533,7 @@ function renderIssues(issues) {
       </div>`;
 
     for (const issue of grouped[sev]) {
+      _issueMap[issue.id] = issue;
       let aiSection = '';
       if (issue.ai_suggestion) {
         try {
@@ -580,7 +583,7 @@ function renderIssues(issues) {
               ${issue.category === 'legibilidade' ? `
               <div class="mt-2">
                 <button class="btn btn-sm btn-outline-secondary" style="font-size:12px"
-                        onclick="copyReadabilityPrompt(${JSON.stringify(issue).replace(/'/g, '&#39;')})">
+                        onclick="copyReadabilityPrompt(_issueMap[${issue.id}])">
                   <i class="bi bi-robot me-1"></i>Copiar prompt para IA
                 </button>
                 <span id="copy-ok-${issue.id}" class="small text-success ms-2" style="display:none">
