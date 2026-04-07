@@ -417,7 +417,10 @@ document.querySelectorAll('.sort-option').forEach(btn => {
 });
 
 // ── Issues modal ─────────────────────────────────────────────
+let _currentPageId = null;
+
 function loadIssues(pageId, pageUrl, pageTitle) {
+  _currentPageId = pageId;
   document.getElementById('modalTitle').textContent = pageTitle || 'Sugestões de Melhoria';
   document.getElementById('modalUrl').textContent = pageUrl;
   document.getElementById('issuesBody').innerHTML =
@@ -528,6 +531,13 @@ function renderIssues(issues) {
                 <span class="small">${issue.suggestion}</span>
               </div>` : ''}
               ${aiSection}
+              ${shouldShowGenerateBtn(issue) ? `
+              <div class="mt-2" id="gen-wrap-${issue.id}">
+                <button class="btn btn-sm btn-outline-primary" style="font-size:12px"
+                        onclick="generateSuggestion(${issue.id}, '${issue.category === 'title' ? 'titulo' : 'meta'}')">
+                  <i class="bi bi-stars me-1"></i>Gerar sugestão com IA
+                </button>
+              </div>` : ''}
             </div>
           </div>
         </div>`;
@@ -537,6 +547,60 @@ function renderIssues(issues) {
   }
 
   document.getElementById('issuesBody').innerHTML = html;
+}
+
+function shouldShowGenerateBtn(issue) {
+  if (issue.category !== 'title' && issue.category !== 'meta') return false;
+  const t = issue.title.toLowerCase();
+  // Only for absent or short — not for "longo" or "duplicado"
+  return !t.includes('longo') && !t.includes('duplicado') && !t.includes('duplicada');
+}
+
+function generateSuggestion(issueId, tipo) {
+  const wrap = document.getElementById('gen-wrap-' + issueId);
+  wrap.innerHTML = `<div class="d-flex align-items-center gap-2 text-primary" style="font-size:12px">
+    <span class="spinner-border spinner-border-sm"></span>Gerando sugestão...
+  </div>`;
+
+  fetch(`/api/page/${_currentPageId}/gerar-sugestao`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({tipo})
+  })
+    .then(r => r.json())
+    .then(data => {
+      if (data.error) {
+        wrap.innerHTML = `<div class="small text-danger"><i class="bi bi-exclamation-triangle me-1"></i>${data.error}</div>`;
+        return;
+      }
+      const label = tipo === 'titulo' ? 'Título sugerido' : 'Meta description sugerida';
+      const charCount = data.sugestao.length;
+      wrap.innerHTML = `
+        <div class="ai-suggestion-box mt-2">
+          <div class="ai-suggestion-header">
+            <i class="bi bi-stars me-2"></i>Sugestão gerada por IA
+          </div>
+          <div class="ai-suggestion-body small">
+            <div class="fw-semibold mb-1">${label}:</div>
+            <div class="text-dark mb-1" id="gen-text-${issueId}">"${data.sugestao}"</div>
+            <div class="d-flex align-items-center gap-2 mt-2">
+              <span class="text-muted" style="font-size:11px">${charCount} caracteres</span>
+              <button class="btn btn-sm btn-outline-secondary py-0 px-2" style="font-size:11px"
+                      onclick="navigator.clipboard.writeText(document.getElementById('gen-text-${issueId}').textContent.replace(/^\"|\"$/g,''))
+                               .then(()=>this.innerHTML='<i class=\\'bi bi-check-lg\\'></i> Copiado!')">
+                <i class="bi bi-copy me-1"></i>Copiar
+              </button>
+              <button class="btn btn-sm btn-link text-muted py-0 px-1" style="font-size:11px"
+                      onclick="generateSuggestion(${issueId}, '${tipo}')">
+                <i class="bi bi-arrow-clockwise me-1"></i>Gerar novamente
+              </button>
+            </div>
+          </div>
+        </div>`;
+    })
+    .catch(() => {
+      wrap.innerHTML = `<div class="small text-danger"><i class="bi bi-exclamation-triangle me-1"></i>Erro de conexão. Tente novamente.</div>`;
+    });
 }
 </script>
 </body>

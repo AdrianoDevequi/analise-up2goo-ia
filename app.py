@@ -1178,6 +1178,76 @@ def client_page_issues(project_id, page_id):
 
 
 # ---------------------------------------------------------------------------
+# On-demand AI suggestion for title / meta description
+# ---------------------------------------------------------------------------
+
+@app.route('/api/page/<int:page_id>/gerar-sugestao', methods=['POST'])
+@login_required
+def api_generate_suggestion(page_id):
+    tipo = (request.json or {}).get('tipo', 'meta')  # 'titulo' or 'meta'
+
+    db = get_db()
+    with db.cursor() as cur:
+        cur.execute('SELECT url, title FROM pages WHERE id = %s', (page_id,))
+        page = cur.fetchone()
+        if not page:
+            return jsonify({'error': 'Página não encontrada'}), 404
+
+    api_key = os.environ.get('GEMINI_API_KEY', '')
+    if not api_key:
+        return jsonify({'error': 'Chave Gemini não configurada'}), 500
+
+    try:
+        import requests as req_lib
+        import google.generativeai as genai
+        from bs4 import BeautifulSoup as BS
+
+        resp = req_lib.get(page['url'], timeout=10,
+                           headers={'User-Agent': 'Mozilla/5.0 (compatible; SEOBot/1.0)'})
+        soup = BS(resp.text, 'html.parser')
+
+        h1_tags = soup.find_all('h1')
+        h1_text = h1_tags[0].get_text().strip() if h1_tags else ''
+        h2_texts = [h.get_text().strip() for h in soup.find_all('h2')[:5]]
+        body = soup.find('body')
+        body_text = body.get_text(separator=' ', strip=True)[:2000] if body else ''
+
+        if tipo == 'titulo':
+            instrucao = 'Gere APENAS um título de página (title tag) otimizado para SEO com 50-60 caracteres.'
+            campo = 'titulo'
+        else:
+            instrucao = 'Gere APENAS uma meta description otimizada para SEO com 150-160 caracteres, incluindo call-to-action.'
+            campo = 'meta_description'
+
+        prompt = f"""Você é um especialista em SEO e copywriting. {instrucao}
+
+URL: {page['url']}
+Título atual: {page['title'] or '(ausente)'}
+H1: {h1_text or '(ausente)'}
+Subtítulos H2: {', '.join(h2_texts) if h2_texts else '(nenhum)'}
+Conteúdo da página: {body_text}
+
+Retorne APENAS um JSON válido sem markdown: {{"{campo}": "texto gerado aqui"}}
+Use português brasileiro. Seja específico ao tema da página."""
+
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel('gemini-2.0-flash')
+        response = model.generate_content(prompt)
+        response_text = response.text.strip()
+
+        json_match = re.search(r'\{[\s\S]*\}', response_text)
+        if json_match:
+            data = json.loads(json_match.group())
+            return jsonify({'sugestao': data.get(campo, ''), 'tipo': tipo})
+
+    except Exception as e:
+        print(f'[AI Suggest] Erro: {e}')
+        return jsonify({'error': str(e)}), 500
+
+    return jsonify({'error': 'Não foi possível gerar sugestão'}), 500
+
+
+# ---------------------------------------------------------------------------
 # Run
 # ---------------------------------------------------------------------------
 
