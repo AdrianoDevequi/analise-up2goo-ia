@@ -81,7 +81,13 @@
             <div class="spinner-border spinner-border-sm text-warning" role="status"></div>
             <strong class="text-warning-emphasis">Análise em andamento...</strong>
           </div>
-          <span class="small text-muted" id="progressElapsed">0s</span>
+          <div class="d-flex align-items-center gap-3">
+            <span class="small text-muted" id="progressElapsed">0s</span>
+            <button class="btn btn-sm btn-outline-danger py-0 px-2" id="btnStopAnalysis"
+                    onclick="stopAnalysis({{ project.id }})" title="Parar e salvar o que já foi feito">
+              <i class="bi bi-stop-fill me-1"></i>Parar
+            </button>
+          </div>
         </div>
         <div class="progress mb-2" style="height:6px">
           <div id="progressBar" class="progress-bar progress-bar-striped progress-bar-animated bg-warning"
@@ -194,10 +200,17 @@
 
       <!-- Analysis summary -->
       <div class="col-lg-8">
-        {% if latest_analysis and latest_analysis.status == 'completed' %}
+        {% if latest_analysis and latest_analysis.status in ['completed', 'stopped'] %}
         <div class="card shadow-sm border-0">
           <div class="card-header bg-white border-bottom py-3 d-flex justify-content-between align-items-center">
-            <h6 class="mb-0 fw-semibold"><i class="bi bi-bar-chart me-2 text-primary"></i>Última Análise</h6>
+            <h6 class="mb-0 fw-semibold">
+              <i class="bi bi-bar-chart me-2 text-primary"></i>Última Análise
+              {% if latest_analysis.status == 'stopped' %}
+                <span class="badge bg-info-subtle text-info ms-2" title="{{ latest_analysis.error_message }}">
+                  <i class="bi bi-stop-circle me-1"></i>Parcial
+                </span>
+              {% endif %}
+            </h6>
             <span class="small text-muted">
               {{ latest_analysis.completed_at.strftime('%d/%m/%Y às %H:%M') if latest_analysis.completed_at else '' }}
             </span>
@@ -580,6 +593,25 @@ function resetAnalysisBtn(errMsg) {
   if (errMsg) alert(errMsg);
 }
 
+function stopAnalysis(projectId) {
+  const btn = document.getElementById('btnStopAnalysis');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Parando...';
+  fetch('/admin/projetos/' + projectId + '/parar-analise', { method: 'POST' })
+    .then(r => r.json())
+    .then(data => {
+      if (data.error) {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-stop-fill me-1"></i>Parar';
+      }
+      // polling vai detectar status=stopped e recarregar
+    })
+    .catch(() => {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="bi bi-stop-fill me-1"></i>Parar';
+    });
+}
+
 let pollStartTime = null;
 let elapsedTimer = null;
 
@@ -623,7 +655,7 @@ function checkStatus() {
         }
       }
 
-      if (data.status === 'completed' || data.status === 'error') {
+      if (data.status === 'completed' || data.status === 'stopped' || data.status === 'error') {
         clearInterval(pollInterval);
         clearInterval(elapsedTimer);
         location.reload();

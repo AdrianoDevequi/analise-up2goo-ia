@@ -217,6 +217,13 @@ def init_db():
 
 
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Analysis cancellation registry
+# ---------------------------------------------------------------------------
+
+_cancel_set: set = set()   # analysis IDs requested to stop
+
+
 # Auth helpers
 # ---------------------------------------------------------------------------
 
@@ -361,6 +368,25 @@ def run_analysis_background(analysis_id, project_url, sitemap_url=None, use_play
                     )
                     conn.commit()
 
+                    # Check if a stop was requested
+                    if analysis_id in _cancel_set:
+                        _cancel_set.discard(analysis_id)
+                        print(f'[ANALYSIS] Interrompida pelo usuário após {pages_done} páginas.')
+                        cur.execute(
+                            '''UPDATE analyses SET status=%s, completed_at=%s,
+                                   total_pages=%s, total_issues=%s,
+                                   high_issues=%s, medium_issues=%s, low_issues=%s,
+                                   error_message=%s
+                               WHERE id=%s''',
+                            ('stopped', datetime.now(),
+                             pages_done, total_issues,
+                             high_issues, medium_issues, low_issues,
+                             f'Interrompida manualmente após {pages_done} páginas.',
+                             analysis_id)
+                        )
+                        conn.commit()
+                        return
+
                 cur.execute(
                     '''UPDATE analyses SET
                         status=%s, completed_at=%s,
@@ -369,7 +395,7 @@ def run_analysis_background(analysis_id, project_url, sitemap_url=None, use_play
                        WHERE id=%s''',
                     (
                         'completed', datetime.now(),
-                        len(pages), total_issues,
+                        pages_done, total_issues,
                         high_issues, medium_issues, low_issues,
                         analysis_id
                     )
@@ -676,8 +702,8 @@ def admin_projects():
             SELECT p.id, p.name, p.url, p.created_at,
                    u.name as client_name, u.email as client_email,
                    (SELECT status FROM analyses WHERE project_id=p.id ORDER BY created_at DESC LIMIT 1) as last_status,
-                   (SELECT total_issues FROM analyses WHERE project_id=p.id AND status='completed' ORDER BY completed_at DESC LIMIT 1) as last_issues,
-                   (SELECT completed_at FROM analyses WHERE project_id=p.id AND status='completed' ORDER BY completed_at DESC LIMIT 1) as last_analysis
+                   (SELECT total_issues FROM analyses WHERE project_id=p.id AND status IN ('completed','stopped') ORDER BY completed_at DESC LIMIT 1) as last_issues,
+                   (SELECT completed_at FROM analyses WHERE project_id=p.id AND status IN ('completed','stopped') ORDER BY completed_at DESC LIMIT 1) as last_analysis
             FROM projects p
             JOIN users u ON u.id = p.client_id
             ORDER BY p.created_at DESC
@@ -771,7 +797,7 @@ def admin_project_detail(project_id):
         latest_analysis = analyses[0] if analyses else None
         pages_data = []
 
-        if latest_analysis and latest_analysis['status'] == 'completed':
+        if latest_analysis and latest_analysis['status'] in ('completed', 'stopped'):
             cur.execute('''
                 SELECT pg.*,
                        COUNT(i.id) as total_issue_count,
@@ -850,6 +876,23 @@ def admin_run_analysis(project_id):
     thread.start()
 
     return jsonify({'analysis_id': analysis_id, 'status': 'started'})
+
+
+@app.route('/admin/projetos/<int:project_id>/parar-analise', methods=['POST'])
+@admin_required
+def admin_stop_analysis(project_id):
+    """Request cancellation of the running analysis for a project."""
+    db = get_db()
+    with db.cursor() as cur:
+        cur.execute(
+            "SELECT id FROM analyses WHERE project_id=%s AND status IN ('pending','running') ORDER BY created_at DESC LIMIT 1",
+            (project_id,)
+        )
+        row = cur.fetchone()
+    if not row:
+        return jsonify({'error': 'Nenhuma análise em andamento'}), 400
+    _cancel_set.add(row['id'])
+    return jsonify({'ok': True, 'analysis_id': row['id']})
 
 
 @app.route('/admin/projetos/<int:project_id>/importar-sf', methods=['POST'])
@@ -1021,9 +1064,9 @@ def client_dashboard():
         cur.execute('''
             SELECT p.*,
                    (SELECT status FROM analyses WHERE project_id=p.id ORDER BY created_at DESC LIMIT 1) as last_status,
-                   (SELECT total_issues FROM analyses WHERE project_id=p.id AND status='completed' ORDER BY completed_at DESC LIMIT 1) as total_issues,
-                   (SELECT high_issues FROM analyses WHERE project_id=p.id AND status='completed' ORDER BY completed_at DESC LIMIT 1) as high_issues,
-                   (SELECT completed_at FROM analyses WHERE project_id=p.id AND status='completed' ORDER BY completed_at DESC LIMIT 1) as last_analysis
+                   (SELECT total_issues FROM analyses WHERE project_id=p.id AND status IN ('completed','stopped') ORDER BY completed_at DESC LIMIT 1) as total_issues,
+                   (SELECT high_issues FROM analyses WHERE project_id=p.id AND status IN ('completed','stopped') ORDER BY completed_at DESC LIMIT 1) as high_issues,
+                   (SELECT completed_at FROM analyses WHERE project_id=p.id AND status IN ('completed','stopped') ORDER BY completed_at DESC LIMIT 1) as last_analysis
             FROM projects p
             WHERE p.client_id = %s
             ORDER BY p.created_at DESC
@@ -1052,7 +1095,7 @@ def client_project_view(project_id):
             return redirect(url_for('client_dashboard'))
 
         cur.execute(
-            "SELECT * FROM analyses WHERE project_id=%s AND status='completed' ORDER BY completed_at DESC LIMIT 1",
+            "SELECT * FROM analyses WHERE project_id=%s AND status IN ('completed','stopped') ORDER BY completed_at DESC LIMIT 1",
             (project_id,)
         )
         latest_analysis = cur.fetchone()
