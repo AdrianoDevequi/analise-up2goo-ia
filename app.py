@@ -277,7 +277,7 @@ def run_analysis_background(analysis_id, project_url, sitemap_url=None):
                 medium_issues = 0
                 low_issues = 0
 
-                has_api_key = bool(os.environ.get('ANTHROPIC_API_KEY', '').strip())
+                has_api_key = bool(os.environ.get('GEMINI_API_KEY', '').strip())
 
                 for page_data in pages:
                     issues, word_count = analyze_page(page_data)
@@ -423,13 +423,13 @@ def _save_sf_results_to_db(conn, analysis_id, sf_results, has_api_key):
 
 
 def _get_ai_from_sf_data(page_data):
-    """Call Claude AI using SF metadata (title, meta, H1) instead of full HTML."""
+    """Call Gemini AI using SF metadata (title, meta, H1) instead of full HTML."""
     import os, re, json as _json
-    api_key = os.environ.get('ANTHROPIC_API_KEY', '')
+    api_key = os.environ.get('GEMINI_API_KEY', '')
     if not api_key:
         return None
     try:
-        import anthropic
+        import google.generativeai as genai
         title = page_data.get('_sf_title') or page_data.get('title', '')
         meta  = page_data.get('_sf_meta', '')
         h1    = page_data.get('_sf_h1', '')
@@ -454,13 +454,10 @@ Retorne APENAS JSON válido (sem markdown):
 
 Use português brasileiro. Seja específico ao nicho identificado na URL/título."""
 
-        client = anthropic.Anthropic(api_key=api_key)
-        msg = client.messages.create(
-            model='claude-sonnet-4-6',
-            max_tokens=600,
-            messages=[{'role': 'user', 'content': prompt}]
-        )
-        text = msg.content[0].text.strip()
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel('gemini-2.0-flash')
+        response = model.generate_content(prompt)
+        text = response.text.strip()
         m = re.search(r'\{[\s\S]*\}', text)
         if m:
             return _json.loads(m.group())
@@ -483,7 +480,7 @@ def run_sf_import_background(analysis_id, sf_results):
                 print(f'[SF IMPORT] Error setting running: {e}')
                 return
 
-        has_api_key = bool(os.environ.get('ANTHROPIC_API_KEY', '').strip())
+        has_api_key = bool(os.environ.get('GEMINI_API_KEY', '').strip())
         total, high, medium, low = _save_sf_results_to_db(conn, analysis_id, sf_results, has_api_key)
 
         with conn.cursor() as cur:
@@ -534,7 +531,7 @@ def run_sf_cli_background(analysis_id, project_url):
                 conn.commit()
             return
 
-        has_api_key = bool(os.environ.get('ANTHROPIC_API_KEY', '').strip())
+        has_api_key = bool(os.environ.get('GEMINI_API_KEY', '').strip())
         total, high, medium, low = _save_sf_results_to_db(conn, analysis_id, sf_results, has_api_key)
 
         with conn.cursor() as cur:

@@ -436,17 +436,17 @@ def analyze_page(page_data):
 
 
 # ---------------------------------------------------------------------------
-# AI Suggestions via Claude
+# AI Suggestions via Gemini
 # ---------------------------------------------------------------------------
 
 def get_ai_suggestions(page_data):
     """
-    Use Claude API to generate specific text improvement suggestions for a page.
+    Use Gemini API to generate specific text improvement suggestions for a page.
 
     Returns dict with suggested title, meta description, H1, and content tip.
     Returns None if API key is not configured.
     """
-    api_key = os.environ.get('ANTHROPIC_API_KEY', '')
+    api_key = os.environ.get('GEMINI_API_KEY', '')
     if not api_key:
         return None
 
@@ -455,7 +455,7 @@ def get_ai_suggestions(page_data):
         return None
 
     try:
-        import anthropic
+        import google.generativeai as genai
 
         title_tag = soup.find('title')
         title_text = title_tag.get_text().strip() if title_tag else ''
@@ -495,14 +495,10 @@ Retorne APENAS um JSON válido (sem markdown, sem explicações) com este format
 
 Use português brasileiro. Seja específico para o nicho/tema identificado na página."""
 
-        client = anthropic.Anthropic(api_key=api_key)
-        message = client.messages.create(
-            model='claude-sonnet-4-6',
-            max_tokens=800,
-            messages=[{'role': 'user', 'content': prompt}]
-        )
-
-        response_text = message.content[0].text.strip()
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel('gemini-2.0-flash')
+        response = model.generate_content(prompt)
+        response_text = response.text.strip()
 
         # Extract JSON
         json_match = re.search(r'\{[\s\S]*\}', response_text)
