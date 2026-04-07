@@ -482,6 +482,8 @@ let pollInterval = null;
 {% if latest_analysis and latest_analysis.status in ['pending', 'running'] %}
 currentAnalysisId = {{ latest_analysis.id }};
 startPolling();
+// Carrega páginas já analisadas imediatamente (caso seja um reload)
+fetchLivePages();
 {% endif %}
 
 // Check if SF CLI is available on this machine
