@@ -270,211 +270,285 @@ def admin_required(f):
 # Background analysis
 # ---------------------------------------------------------------------------
 
+def _db_exec(query, params=None, fetch=None, commit=False):
+    """Execute a DB query with a fresh short-lived connection. Returns result or None."""
+    conn = psycopg2.connect(**get_db_config(), cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        with conn.cursor() as cur:
+            cur.execute(query, params)
+            result = None
+            if fetch == 'one':
+                result = cur.fetchone()
+            elif fetch == 'all':
+                result = cur.fetchall()
+            if commit:
+                conn.commit()
+            return result
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def _db_save_page(analysis_id, page_data, issues, ai_data):
+    """Save a page and its issues to DB with a fresh connection. Returns issue counts."""
+    import json as _json
+    conn = psycopg2.connect(**get_db_config(), cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        with conn.cursor() as cur:
+            word_count = page_data.get('_word_count', 0)
+            cur.execute(
+                '''INSERT INTO pages (analysis_id, url, title, status_code, word_count, load_time, issue_count)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id''',
+                (analysis_id, page_data['url'], page_data.get('title', ''),
+                 page_data.get('status_code', 0), word_count,
+                 page_data.get('load_time', 0), len(issues))
+            )
+            page_id = cur.fetchone()['id']
+
+            hi, med, lo = 0, 0, 0
+            for issue in issues:
+                ai_json = _json.dumps(ai_data, ensure_ascii=False) if ai_data else None
+                cur.execute(
+                    '''INSERT INTO issues (page_id, category, severity, title,
+                                           description, current_value, suggestion, ai_suggestion)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s)''',
+                    (page_id, issue['category'], issue['severity'], issue['title'],
+                     issue.get('description', ''), issue.get('current_value', ''),
+                     issue.get('suggestion', ''), ai_json)
+                )
+                if issue['severity'] == 'high':     hi += 1
+                elif issue['severity'] == 'medium': med += 1
+                else:                               lo += 1
+            conn.commit()
+        return len(issues), hi, med, lo
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def _db_copy_cached_page(analysis_id, url, cached):
+    """Copy a cached page and its issues to a new analysis. Returns issue counts."""
+    conn = psycopg2.connect(**get_db_config(), cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                '''INSERT INTO pages (analysis_id, url, title, status_code,
+                       word_count, load_time, issue_count)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id''',
+                (analysis_id, url, cached['title'], cached['status_code'],
+                 cached['word_count'], cached['load_time'], cached['issue_count'])
+            )
+            new_page_id = cur.fetchone()['id']
+            cur.execute('SELECT * FROM issues WHERE page_id = %s', (cached['id'],))
+            hi, med, lo, total = 0, 0, 0, 0
+            for iss in cur.fetchall():
+                cur.execute(
+                    '''INSERT INTO issues (page_id, category, severity, title,
+                           description, current_value, suggestion, ai_suggestion)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s)''',
+                    (new_page_id, iss['category'], iss['severity'], iss['title'],
+                     iss['description'], iss['current_value'],
+                     iss['suggestion'], iss['ai_suggestion'])
+                )
+                total += 1
+                if iss['severity'] == 'high':     hi += 1
+                elif iss['severity'] == 'medium': med += 1
+                else:                             lo += 1
+            conn.commit()
+        return total, hi, med, lo
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
 def run_analysis_background(analysis_id, project_url, project_id=None, sitemap_url=None, use_playwright=False):
     """Runs the full crawl + SEO analysis in a background thread."""
     from crawler import fetch_page, fetch_page_playwright
-    with get_thread_db() as conn:
-        with conn.cursor() as cur:
+
+    total_issues = 0
+    high_issues = 0
+    medium_issues = 0
+    low_issues = 0
+    pages_done = 0
+    consecutive_errors = 0
+
+    try:
+        _db_exec('UPDATE analyses SET status=%s, started_at=%s WHERE id=%s',
+                 ('running', datetime.now(), analysis_id), commit=True)
+
+        fetch_fn = fetch_page_playwright if use_playwright else fetch_page
+        has_api_key = bool(os.environ.get('GEMINI_API_KEY', '').strip())
+
+        def _check_cancel():
+            """Check if analysis was cancelled. Updates DB and returns True if cancelled."""
+            nonlocal pages_done, total_issues, high_issues, medium_issues, low_issues
+            if analysis_id in _cancel_set:
+                _cancel_set.discard(analysis_id)
+                print(f'[ANALYSIS] Interrompida após {pages_done} páginas.')
+                _db_exec(
+                    '''UPDATE analyses SET total_pages=%s, total_issues=%s,
+                           high_issues=%s, medium_issues=%s, low_issues=%s WHERE id=%s''',
+                    (pages_done, total_issues, high_issues, medium_issues, low_issues, analysis_id),
+                    commit=True)
+                return True
+            return False
+
+        def _update_progress():
+            """Update analysis progress in DB."""
+            _db_exec('UPDATE analyses SET total_pages=%s, total_issues=%s WHERE id=%s',
+                     (pages_done, total_issues, analysis_id), commit=True)
+
+        def _process_page(page_data):
+            """Analyze, save, and update progress for one page. Returns False if cancelled."""
+            nonlocal total_issues, high_issues, medium_issues, low_issues, pages_done, consecutive_errors
+
             try:
-                cur.execute(
-                    'UPDATE analyses SET status=%s, started_at=%s WHERE id=%s',
-                    ('running', datetime.now(), analysis_id)
-                )
-                conn.commit()
+                issues, word_count = analyze_page(page_data)
+                page_data['_word_count'] = word_count
 
-                fetch_fn = fetch_page_playwright if use_playwright else fetch_page
-
-                total_issues = 0
-                high_issues = 0
-                medium_issues = 0
-                low_issues = 0
-                pages_done = 0
-                has_api_key = bool(os.environ.get('GEMINI_API_KEY', '').strip())
-                import json as _json
-
-                def _process_page(page_data):
-                    """Analyze, save, and update progress for one page. Returns False if cancelled."""
-                    nonlocal total_issues, high_issues, medium_issues, low_issues, pages_done
-
-                    issues, word_count = analyze_page(page_data)
-
-                    ai_data = None
-                    if has_api_key and pages_done < 10:
-                        ai_data = get_ai_suggestions(page_data)
-
-                    cur.execute(
-                        '''INSERT INTO pages (analysis_id, url, title, status_code, word_count, load_time, issue_count)
-                           VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id''',
-                        (analysis_id, page_data['url'], page_data.get('title', ''),
-                         page_data.get('status_code', 0), word_count,
-                         page_data.get('load_time', 0), len(issues))
-                    )
-                    page_id = cur.fetchone()['id']
-
-                    for issue in issues:
-                        ai_json = _json.dumps(ai_data, ensure_ascii=False) if ai_data else None
-                        cur.execute(
-                            '''INSERT INTO issues (page_id, category, severity, title,
-                                                   description, current_value, suggestion, ai_suggestion)
-                               VALUES (%s, %s, %s, %s, %s, %s, %s, %s)''',
-                            (page_id, issue['category'], issue['severity'], issue['title'],
-                             issue.get('description', ''), issue.get('current_value', ''),
-                             issue.get('suggestion', ''), ai_json)
-                        )
-                        total_issues += 1
-                        if issue['severity'] == 'high':     high_issues += 1
-                        elif issue['severity'] == 'medium': medium_issues += 1
-                        else:                               low_issues += 1
-
-                    pages_done += 1
-                    cur.execute('UPDATE analyses SET total_pages=%s, total_issues=%s WHERE id=%s',
-                                (pages_done, total_issues, analysis_id))
-                    conn.commit()
-
-                    if analysis_id in _cancel_set:
-                        _cancel_set.discard(analysis_id)
-                        print(f'[ANALYSIS] Interrompida após {pages_done} páginas.')
-                        # Only update counts — status was already set to 'stopped' by the stop route
-                        cur.execute(
-                            '''UPDATE analyses SET total_pages=%s, total_issues=%s,
-                                   high_issues=%s, medium_issues=%s, low_issues=%s
-                                   WHERE id=%s''',
-                            (pages_done, total_issues, high_issues, medium_issues, low_issues, analysis_id)
-                        )
-                        conn.commit()
-                        return False
-                    return True
-
-                # ── Modo sitemap: busca + analisa cada URL imediatamente ──
-                if sitemap_url:
-                    print(f'[ANALYSIS] Usando sitemap: {sitemap_url}')
-                    # Signal UI that sitemap is loading (-1 = loading)
-                    cur.execute('UPDATE analyses SET pages_expected=%s WHERE id=%s',
-                                (-1, analysis_id))
-                    conn.commit()
+                ai_data = None
+                if has_api_key and pages_done < 10:
                     try:
-                        sitemap_urls = get_sitemap_urls(sitemap_url, max_urls=500)
-                        print(f'[ANALYSIS] {len(sitemap_urls)} URLs no sitemap')
+                        ai_data = get_ai_suggestions(page_data)
                     except Exception as e:
-                        print(f'[ANALYSIS] Falha no sitemap, crawl normal: {e}')
-                        sitemap_urls = None
+                        print(f'[ANALYSIS] Erro IA para {page_data["url"]}: {e}')
 
-                    if sitemap_urls:
-                        url_list = sitemap_urls
-                        cur.execute('UPDATE analyses SET pages_expected=%s WHERE id=%s',
-                                    (len(url_list), analysis_id))
-                        conn.commit()
+                cnt, hi, med, lo = _db_save_page(analysis_id, page_data, issues, ai_data)
+                total_issues += cnt
+                high_issues += hi
+                medium_issues += med
+                low_issues += lo
+                pages_done += 1
+                consecutive_errors = 0
 
-                        for url in url_list:
-                            # Skip if already analyzed in the last hour
-                            if project_id:
-                                cur.execute('''
-                                    SELECT pg.id, pg.title, pg.status_code, pg.word_count,
-                                           pg.load_time, pg.issue_count
-                                    FROM pages pg
-                                    JOIN analyses a ON a.id = pg.analysis_id
-                                    WHERE pg.url = %s
-                                      AND a.project_id = %s
-                                      AND a.id != %s
-                                      AND pg.analyzed_at > NOW() - INTERVAL '1 hour'
-                                    ORDER BY pg.analyzed_at DESC
-                                    LIMIT 1
-                                ''', (url, project_id, analysis_id))
-                                cached = cur.fetchone()
-                                if cached:
-                                    print(f'[ANALYSIS] Cache hit (< 1h): {url}')
-                                    # Copy page record
-                                    cur.execute(
-                                        '''INSERT INTO pages (analysis_id, url, title, status_code,
-                                               word_count, load_time, issue_count)
-                                           VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id''',
-                                        (analysis_id, url, cached['title'], cached['status_code'],
-                                         cached['word_count'], cached['load_time'], cached['issue_count'])
-                                    )
-                                    new_page_id = cur.fetchone()['id']
-                                    # Copy issues
-                                    cur.execute('SELECT * FROM issues WHERE page_id = %s', (cached['id'],))
-                                    for iss in cur.fetchall():
-                                        cur.execute(
-                                            '''INSERT INTO issues (page_id, category, severity, title,
-                                                   description, current_value, suggestion, ai_suggestion)
-                                               VALUES (%s, %s, %s, %s, %s, %s, %s, %s)''',
-                                            (new_page_id, iss['category'], iss['severity'], iss['title'],
-                                             iss['description'], iss['current_value'],
-                                             iss['suggestion'], iss['ai_suggestion'])
-                                        )
-                                        total_issues += 1
-                                        if iss['severity'] == 'high':     high_issues += 1
-                                        elif iss['severity'] == 'medium': medium_issues += 1
-                                        else:                              low_issues += 1
-                                    pages_done += 1
-                                    cur.execute('UPDATE analyses SET total_pages=%s, total_issues=%s WHERE id=%s',
-                                                (pages_done, total_issues, analysis_id))
-                                    conn.commit()
-                                    if analysis_id in _cancel_set:
-                                        _cancel_set.discard(analysis_id)
-                                        return
-                                    continue
+                _update_progress()
+            except Exception as e:
+                consecutive_errors += 1
+                print(f'[ANALYSIS] Erro ao salvar página {page_data.get("url")}: {e}')
+                if consecutive_errors >= 5:
+                    print(f'[ANALYSIS] {consecutive_errors} erros consecutivos, abortando.')
+                    raise
 
-                            try:
-                                page_data = fetch_fn(url)
-                                if not page_data:
-                                    continue
-                            except Exception as e:
-                                print(f'[ANALYSIS] Erro ao buscar {url}: {e}')
-                                continue
-                            if not _process_page(page_data):
-                                return  # cancelled
-                        # final update and return early
-                        cur.execute(
-                            '''UPDATE analyses SET status=%s, completed_at=%s,
-                                   total_pages=%s, total_issues=%s,
-                                   high_issues=%s, medium_issues=%s, low_issues=%s WHERE id=%s''',
-                            ('completed', datetime.now(), pages_done, total_issues,
-                             high_issues, medium_issues, low_issues, analysis_id)
-                        )
-                        conn.commit()
+            return not _check_cancel()
+
+        # ── Modo sitemap: busca + analisa cada URL imediatamente ──
+        if sitemap_url:
+            print(f'[ANALYSIS] Usando sitemap: {sitemap_url}')
+            _db_exec('UPDATE analyses SET pages_expected=%s WHERE id=%s',
+                     (-1, analysis_id), commit=True)
+            try:
+                sitemap_urls = get_sitemap_urls(sitemap_url, max_urls=500)
+                print(f'[ANALYSIS] {len(sitemap_urls)} URLs no sitemap')
+            except Exception as e:
+                print(f'[ANALYSIS] Falha no sitemap, crawl normal: {e}')
+                sitemap_urls = None
+
+            if sitemap_urls:
+                url_list = sitemap_urls
+                _db_exec('UPDATE analyses SET pages_expected=%s WHERE id=%s',
+                         (len(url_list), analysis_id), commit=True)
+
+                for url in url_list:
+                    if _check_cancel():
                         return
 
-                    # Sitemap falhou — fallback para crawl
-                    pages = crawl_website(project_url, max_pages=50)
-                else:
-                    pages = crawl_website(project_url, max_pages=30)
+                    # Skip if already analyzed in the last hour
+                    if project_id:
+                        try:
+                            cached = _db_exec('''
+                                SELECT pg.id, pg.title, pg.status_code, pg.word_count,
+                                       pg.load_time, pg.issue_count
+                                FROM pages pg
+                                JOIN analyses a ON a.id = pg.analysis_id
+                                WHERE pg.url = %s
+                                  AND a.project_id = %s
+                                  AND a.id != %s
+                                  AND pg.analyzed_at > NOW() - INTERVAL '1 hour'
+                                ORDER BY pg.analyzed_at DESC
+                                LIMIT 1
+                            ''', (url, project_id, analysis_id), fetch='one')
+                        except Exception:
+                            cached = None
 
-                # ── Modo crawl: processa lista retornada pelo crawler ──
-                cur.execute('UPDATE analyses SET pages_expected=%s WHERE id=%s',
-                            (len(pages), analysis_id))
-                conn.commit()
+                        if cached:
+                            print(f'[ANALYSIS] Cache hit (< 1h): {url}')
+                            try:
+                                cnt, hi, med, lo = _db_copy_cached_page(analysis_id, url, cached)
+                                total_issues += cnt
+                                high_issues += hi
+                                medium_issues += med
+                                low_issues += lo
+                                pages_done += 1
+                                _update_progress()
+                            except Exception as e:
+                                print(f'[ANALYSIS] Erro ao copiar cache {url}: {e}')
+                            continue
 
-                for page_data in pages:
+                    try:
+                        page_data = fetch_fn(url)
+                        if not page_data:
+                            continue
+                    except Exception as e:
+                        print(f'[ANALYSIS] Erro ao buscar {url}: {e}')
+                        consecutive_errors += 1
+                        if consecutive_errors >= 10:
+                            print(f'[ANALYSIS] Muitos erros seguidos ({consecutive_errors}), parando.')
+                            break
+                        continue
+
+                    consecutive_errors = 0
                     if not _process_page(page_data):
                         return  # cancelled
 
-                cur.execute(
-                    '''UPDATE analyses SET
-                        status=%s, completed_at=%s,
-                        total_pages=%s, total_issues=%s,
-                        high_issues=%s, medium_issues=%s, low_issues=%s
-                       WHERE id=%s''',
-                    (
-                        'completed', datetime.now(),
-                        pages_done, total_issues,
-                        high_issues, medium_issues, low_issues,
-                        analysis_id
-                    )
-                )
-                conn.commit()
+                # final update
+                _db_exec(
+                    '''UPDATE analyses SET status=%s, completed_at=%s,
+                           total_pages=%s, total_issues=%s,
+                           high_issues=%s, medium_issues=%s, low_issues=%s WHERE id=%s''',
+                    ('completed', datetime.now(), pages_done, total_issues,
+                     high_issues, medium_issues, low_issues, analysis_id),
+                    commit=True)
+                return
+            else:
+                # Sitemap falhou — fallback para crawl
+                pages = crawl_website(project_url, max_pages=50)
+        else:
+            pages = crawl_website(project_url, max_pages=30)
 
-            except Exception as e:
-                print(f'[ANALYSIS ERROR] {e}')
-                try:
-                    cur.execute(
-                        "UPDATE analyses SET status='error', error_message=%s WHERE id=%s",
-                        (str(e), analysis_id)
-                    )
-                    conn.commit()
-                except Exception:
-                    pass
+        # ── Modo crawl: processa lista retornada pelo crawler ──
+        _db_exec('UPDATE analyses SET pages_expected=%s WHERE id=%s',
+                 (len(pages), analysis_id), commit=True)
+
+        for page_data in pages:
+            if not _process_page(page_data):
+                return  # cancelled
+
+        _db_exec(
+            '''UPDATE analyses SET status=%s, completed_at=%s,
+                   total_pages=%s, total_issues=%s,
+                   high_issues=%s, medium_issues=%s, low_issues=%s WHERE id=%s''',
+            ('completed', datetime.now(), pages_done, total_issues,
+             high_issues, medium_issues, low_issues, analysis_id),
+            commit=True)
+
+    except Exception as e:
+        print(f'[ANALYSIS ERROR] {e}')
+        try:
+            _db_exec(
+                "UPDATE analyses SET status='stopped', completed_at=%s, error_message=%s, "
+                "total_pages=%s, total_issues=%s, high_issues=%s, medium_issues=%s, low_issues=%s "
+                "WHERE id=%s",
+                (datetime.now(), str(e), pages_done, total_issues,
+                 high_issues, medium_issues, low_issues, analysis_id),
+                commit=True)
+        except Exception as e2:
+            print(f'[ANALYSIS] Falha ao atualizar status de erro: {e2}')
 
 
 # ---------------------------------------------------------------------------

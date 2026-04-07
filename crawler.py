@@ -161,13 +161,24 @@ def fetch_page_playwright(url):
         start = time.time()
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
-            context = browser.new_context(user_agent=HEADERS['User-Agent'])
-            page = context.new_page()
-            response = page.goto(url, timeout=20000, wait_until='networkidle')
-            page_data['load_time'] = round(time.time() - start, 2)
-            page_data['status_code'] = response.status if response else 0
-            html = page.content()
-            browser.close()
+            try:
+                context = browser.new_context(user_agent=HEADERS['User-Agent'])
+                page = context.new_page()
+                try:
+                    response = page.goto(url, timeout=15000, wait_until='domcontentloaded')
+                except Exception:
+                    # Fallback: page might have partially loaded
+                    response = None
+                page_data['load_time'] = round(time.time() - start, 2)
+                page_data['status_code'] = response.status if response else 200
+                # Brief wait for JS rendering, but don't hang
+                try:
+                    page.wait_for_load_state('networkidle', timeout=5000)
+                except Exception:
+                    pass
+                html = page.content()
+            finally:
+                browser.close()
 
         soup = BeautifulSoup(html, 'lxml')
         for tag in soup(['script', 'style', 'noscript', 'header', 'footer', 'nav']):
