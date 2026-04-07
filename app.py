@@ -321,14 +321,12 @@ def run_analysis_background(analysis_id, project_url, sitemap_url=None, use_play
                     if analysis_id in _cancel_set:
                         _cancel_set.discard(analysis_id)
                         print(f'[ANALYSIS] Interrompida após {pages_done} páginas.')
+                        # Only update counts — status was already set to 'stopped' by the stop route
                         cur.execute(
-                            '''UPDATE analyses SET status=%s, completed_at=%s,
-                                   total_pages=%s, total_issues=%s,
-                                   high_issues=%s, medium_issues=%s, low_issues=%s,
-                                   error_message=%s WHERE id=%s''',
-                            ('stopped', datetime.now(), pages_done, total_issues,
-                             high_issues, medium_issues, low_issues,
-                             f'Interrompida manualmente após {pages_done} páginas.', analysis_id)
+                            '''UPDATE analyses SET total_pages=%s, total_issues=%s,
+                                   high_issues=%s, medium_issues=%s, low_issues=%s
+                                   WHERE id=%s''',
+                            (pages_done, total_issues, high_issues, medium_issues, low_issues, analysis_id)
                         )
                         conn.commit()
                         return False
@@ -883,14 +881,26 @@ def admin_stop_analysis(project_id):
     db = get_db()
     with db.cursor() as cur:
         cur.execute(
-            "SELECT id FROM analyses WHERE project_id=%s AND status IN ('pending','running') ORDER BY created_at DESC LIMIT 1",
+            "SELECT id, total_pages, total_issues, high_issues, medium_issues, low_issues FROM analyses WHERE project_id=%s AND status IN ('pending','running') ORDER BY created_at DESC LIMIT 1",
             (project_id,)
         )
         row = cur.fetchone()
     if not row:
         return jsonify({'error': 'Nenhuma análise em andamento'}), 400
-    _cancel_set.add(row['id'])
-    return jsonify({'ok': True, 'analysis_id': row['id']})
+
+    analysis_id = row['id']
+    _cancel_set.add(analysis_id)
+
+    # Update status immediately so polling detects it right away
+    with db.cursor() as cur:
+        cur.execute(
+            '''UPDATE analyses SET status=%s, completed_at=%s, error_message=%s
+               WHERE id=%s''',
+            ('stopped', datetime.utcnow(), 'Interrompida pelo usuário', analysis_id)
+        )
+        db.commit()
+
+    return jsonify({'ok': True, 'analysis_id': analysis_id})
 
 
 @app.route('/admin/projetos/<int:project_id>/importar-sf', methods=['POST'])
