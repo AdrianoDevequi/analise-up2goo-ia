@@ -30,6 +30,21 @@ app.secret_key = os.environ.get('SECRET_KEY', os.urandom(32).hex())
 # ---------------------------------------------------------------------------
 
 def get_db_config():
+    # Railway (e outros PaaS) injetam DATABASE_URL automaticamente
+    database_url = os.environ.get('DATABASE_URL', '')
+    if database_url:
+        from urllib.parse import urlparse
+        # psycopg2 exige "postgresql://", Railway às vezes envia "postgres://"
+        if database_url.startswith('postgres://'):
+            database_url = database_url.replace('postgres://', 'postgresql://', 1)
+        p = urlparse(database_url)
+        return {
+            'host': p.hostname,
+            'port': p.port or 5432,
+            'dbname': p.path.lstrip('/'),
+            'user': p.username,
+            'password': p.password,
+        }
     return {
         'host': os.environ.get('DB_HOST', 'localhost'),
         'port': int(os.environ.get('DB_PORT', 5432)),
@@ -979,4 +994,5 @@ if __name__ == '__main__':
     print('[INIT] Inicializando banco de dados...')
     init_db()
     debug = os.environ.get('FLASK_DEBUG', 'false').lower() == 'true'
-    app.run(host='0.0.0.0', port=5000, debug=debug)
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port, debug=debug)
