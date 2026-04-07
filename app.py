@@ -138,6 +138,7 @@ def init_db():
                     project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
                     status TEXT DEFAULT 'pending',
                     total_pages INTEGER DEFAULT 0,
+                    pages_expected INTEGER DEFAULT 0,
                     total_issues INTEGER DEFAULT 0,
                     high_issues INTEGER DEFAULT 0,
                     medium_issues INTEGER DEFAULT 0,
@@ -174,7 +175,7 @@ def init_db():
             ''')
             conn.commit()
 
-            # Migration: add sitemap_url if missing (existing deployments)
+            # Migrations for existing deployments
             cur.execute("""
                 DO $$
                 BEGIN
@@ -183,6 +184,18 @@ def init_db():
                         WHERE table_name='projects' AND column_name='sitemap_url'
                     ) THEN
                         ALTER TABLE projects ADD COLUMN sitemap_url TEXT;
+                    END IF;
+                    IF NOT EXISTS (
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_name='projects' AND column_name='use_playwright'
+                    ) THEN
+                        ALTER TABLE projects ADD COLUMN use_playwright BOOLEAN DEFAULT FALSE;
+                    END IF;
+                    IF NOT EXISTS (
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_name='analyses' AND column_name='pages_expected'
+                    ) THEN
+                        ALTER TABLE analyses ADD COLUMN pages_expected INTEGER DEFAULT 0;
                     END IF;
                 END $$;
             """)
@@ -237,8 +250,9 @@ def admin_required(f):
 # Background analysis
 # ---------------------------------------------------------------------------
 
-def run_analysis_background(analysis_id, project_url, sitemap_url=None):
+def run_analysis_background(analysis_id, project_url, sitemap_url=None, use_playwright=False):
     """Runs the full crawl + SEO analysis in a background thread."""
+    from crawler import fetch_page, fetch_page_playwright
     with get_thread_db() as conn:
         with conn.cursor() as cur:
             try:
@@ -247,6 +261,8 @@ def run_analysis_background(analysis_id, project_url, sitemap_url=None):
                     ('running', datetime.now(), analysis_id)
                 )
                 conn.commit()
+
+                fetch_fn = fetch_page_playwright if use_playwright else fetch_page
 
                 if sitemap_url:
                     print(f'[ANALYSIS] Usando sitemap: {sitemap_url}')
@@ -258,33 +274,44 @@ def run_analysis_background(analysis_id, project_url, sitemap_url=None):
                         sitemap_urls = None
 
                     if sitemap_urls:
-                        from crawler import fetch_page
+                        url_list = sitemap_urls[:50]
+                        cur.execute('UPDATE analyses SET pages_expected=%s WHERE id=%s',
+                                    (len(url_list), analysis_id))
+                        conn.commit()
                         pages = []
-                        for url in sitemap_urls[:50]:
+                        for url in url_list:
                             try:
-                                page_data = fetch_page(url)
+                                page_data = fetch_fn(url)
                                 if page_data:
                                     pages.append(page_data)
                             except Exception as e:
                                 print(f'[ANALYSIS] Erro ao buscar {url}: {e}')
                     else:
                         pages = crawl_website(project_url, max_pages=50)
+                        cur.execute('UPDATE analyses SET pages_expected=%s WHERE id=%s',
+                                    (len(pages), analysis_id))
+                        conn.commit()
                 else:
                     pages = crawl_website(project_url, max_pages=30)
+                    cur.execute('UPDATE analyses SET pages_expected=%s WHERE id=%s',
+                                (len(pages), analysis_id))
+                    conn.commit()
 
                 total_issues = 0
                 high_issues = 0
                 medium_issues = 0
                 low_issues = 0
+                pages_done = 0
 
                 has_api_key = bool(os.environ.get('GEMINI_API_KEY', '').strip())
+                import json as _json
 
                 for page_data in pages:
                     issues, word_count = analyze_page(page_data)
 
                     # AI suggestions (only first 10 pages to control API usage)
                     ai_data = None
-                    if has_api_key and len(pages) <= 10:
+                    if has_api_key and pages_done < 10:
                         ai_data = get_ai_suggestions(page_data)
 
                     cur.execute(
@@ -301,14 +328,9 @@ def run_analysis_background(analysis_id, project_url, sitemap_url=None):
                         )
                     )
                     page_id = cur.fetchone()['id']
-                    conn.commit()
 
                     for issue in issues:
-                        import json
-                        ai_suggestion_json = None
-                        if ai_data:
-                            ai_suggestion_json = json.dumps(ai_data, ensure_ascii=False)
-
+                        ai_suggestion_json = _json.dumps(ai_data, ensure_ascii=False) if ai_data else None
                         cur.execute(
                             '''INSERT INTO issues (page_id, category, severity, title, description, current_value, suggestion, ai_suggestion)
                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)''',
@@ -331,6 +353,12 @@ def run_analysis_background(analysis_id, project_url, sitemap_url=None):
                         else:
                             low_issues += 1
 
+                    pages_done += 1
+                    # Update live progress after each page
+                    cur.execute(
+                        'UPDATE analyses SET total_pages=%s, total_issues=%s WHERE id=%s',
+                        (pages_done, total_issues, analysis_id)
+                    )
                     conn.commit()
 
                 cur.execute(
@@ -668,6 +696,7 @@ def admin_new_project():
         client_email = request.form.get('client_email', '').strip().lower()
         project_url = request.form.get('project_url', '').strip()
         sitemap_url = request.form.get('sitemap_url', '').strip() or None
+        use_playwright = request.form.get('use_playwright') == 'on'
         notes = request.form.get('notes', '').strip()
 
         if not all([project_name, client_name, client_email, project_url]):
@@ -705,8 +734,8 @@ def admin_new_project():
                 client_id = cur.fetchone()['id']
 
             cur.execute(
-                'INSERT INTO projects (name, url, sitemap_url, client_id, plain_password, notes) VALUES (%s, %s, %s, %s, %s, %s) RETURNING id',
-                (project_name, project_url, sitemap_url, client_id, plain_password, notes)
+                'INSERT INTO projects (name, url, sitemap_url, use_playwright, client_id, plain_password, notes) VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id',
+                (project_name, project_url, sitemap_url, use_playwright, client_id, plain_password, notes)
             )
             project_id = cur.fetchone()['id']
             db.commit()
@@ -767,13 +796,17 @@ def admin_project_detail(project_id):
 @app.route('/admin/projetos/<int:project_id>/atualizar-sitemap', methods=['POST'])
 @admin_required
 def admin_update_sitemap(project_id):
-    """Update the sitemap_url for an existing project."""
+    """Update crawler settings (sitemap_url + use_playwright) for an existing project."""
     sitemap_url = request.form.get('sitemap_url', '').strip() or None
+    use_playwright = request.form.get('use_playwright') == 'on'
     db = get_db()
     with db.cursor() as cur:
-        cur.execute('UPDATE projects SET sitemap_url=%s WHERE id=%s', (sitemap_url, project_id))
+        cur.execute(
+            'UPDATE projects SET sitemap_url=%s, use_playwright=%s WHERE id=%s',
+            (sitemap_url, use_playwright, project_id)
+        )
         db.commit()
-    flash('URL do sitemap atualizada com sucesso.', 'success')
+    flash('Configurações do rastreio salvas.', 'success')
     return redirect(url_for('admin_project_detail', project_id=project_id))
 
 
@@ -808,7 +841,10 @@ def admin_run_analysis(project_id):
     thread = threading.Thread(
         target=run_analysis_background,
         args=(analysis_id, project['url']),
-        kwargs={'sitemap_url': project.get('sitemap_url') or None},
+        kwargs={
+            'sitemap_url': project.get('sitemap_url') or None,
+            'use_playwright': bool(project.get('use_playwright')),
+        },
         daemon=True
     )
     thread.start()
@@ -962,7 +998,12 @@ def api_analysis_status(analysis_id):
         if not analysis:
             return jsonify({'error': 'Não encontrado'}), 404
 
-    return jsonify(dict(analysis))
+    result = dict(analysis)
+    # Ensure datetime fields are serializable
+    for k in ('started_at', 'completed_at', 'created_at'):
+        if result.get(k):
+            result[k] = result[k].isoformat()
+    return jsonify(result)
 
 
 # ---------------------------------------------------------------------------

@@ -1,0 +1,30 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git init:*)",
+      "Bash(git remote:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(docker exec:*)",
+      "Bash(python -c \":*)",
+      "Bash(python3 -c \":*)",
+      "Bash(where py:*)",
+      "Bash(py --version)",
+      "Read(//c/Users/adria/miniconda3/**)",
+      "Read(//c/ProgramData/miniconda3/**)",
+      "Read(//c/Users/adria/**)",
+      "Bash(grep -E \"\\\\.py$|\\\\.sh$|Makefile|manage\")",
+      "mcp__Claude_Preview__preview_start",
+      "Bash(ls /c/Users/adria/AppData/Local/Microsoft/WindowsApps/python*.exe)",
+      "Read(//c/ProgramData/chocolatey/**)",
+      "Bash(/c/Users/adria/AppData/Local/Microsoft/WindowsApps/python3.exe --version)",
+      "Bash(find /c/Users/adria -name python.exe -not -path */WindowsApps/*)",
+      "Bash(git -C /c/Users/adria/Documents/Claude/analise-ia-up2goo status --short)",
+      "Bash(git -C /c/Users/adria/Documents/Claude/analise-ia-up2goo status)",
+      "Bash(git -C /c/Users/adria/Documents/Claude/analise-ia-up2goo add .claude/launch.json)",
+      "Bash(git -C:*)",
+      "Bash(git -C /c/Users/adria/Documents/Claude/analise-ia-up2goo push)"
+    ]
+  }
+}

@@ -54,14 +54,24 @@
                          placeholder="https://www.sitedobcliente.com.br">
                 </div>
               </div>
-              <div class="mb-4">
+              <div class="mb-3">
                 <label class="form-label fw-semibold">URL do Sitemap</label>
                 <div class="input-group">
                   <span class="input-group-text text-muted"><i class="bi bi-file-earmark-code"></i></span>
                   <input type="text" name="sitemap_url" class="form-control"
                          placeholder="https://www.site.com.br/sitemap.xml">
                 </div>
-                <div class="form-text">O rastreio usará apenas as páginas listadas no sitemap. Se deixar em branco, tentará <code>/sitemap.xml</code> automaticamente.</div>
+                <div class="form-text">Se deixar em branco, tentará <code>/sitemap.xml</code> automaticamente.</div>
+              </div>
+              <div class="mb-4">
+                <div class="form-check form-switch">
+                  <input class="form-check-input" type="checkbox" role="switch"
+                         name="use_playwright" id="usePlaywright">
+                  <label class="form-check-label fw-semibold" for="usePlaywright">
+                    Site com JavaScript (JS)
+                  </label>
+                </div>
+                <div class="form-text">Ative para sites que carregam conteúdo via JavaScript (React, Vue, WooCommerce dinâmico, etc.).</div>
               </div>
 
               <hr class="my-4">

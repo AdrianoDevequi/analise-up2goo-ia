@@ -133,6 +133,57 @@ def crawl_website(base_url, max_pages=30, callback=None):
     return pages
 
 
+def fetch_page_playwright(url):
+    """
+    Fetch a JS-rendered page using Playwright (headless Chromium).
+    Falls back to fetch_page if Playwright is not installed.
+    """
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        print('[PLAYWRIGHT] não instalado, usando requests')
+        return fetch_page(url)
+
+    url = normalize_url(url)
+    if not should_crawl(url):
+        return None
+
+    page_data = {
+        'url': url,
+        'status_code': 0,
+        'soup': None,
+        'title': '',
+        'load_time': 0.0,
+        'error': None
+    }
+
+    try:
+        start = time.time()
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            context = browser.new_context(user_agent=HEADERS['User-Agent'])
+            page = context.new_page()
+            response = page.goto(url, timeout=20000, wait_until='networkidle')
+            page_data['load_time'] = round(time.time() - start, 2)
+            page_data['status_code'] = response.status if response else 0
+            html = page.content()
+            browser.close()
+
+        soup = BeautifulSoup(html, 'lxml')
+        for tag in soup(['script', 'style', 'noscript', 'header', 'footer', 'nav']):
+            tag.decompose()
+        page_data['soup'] = soup
+        title_tag = soup.find('title')
+        page_data['title'] = title_tag.get_text().strip() if title_tag else ''
+
+    except Exception as e:
+        page_data['error'] = str(e)
+        print(f'[PLAYWRIGHT] Erro em {url}: {e}')
+
+    time.sleep(0.5)
+    return page_data
+
+
 def fetch_page(url):
     """Fetch a single page and return a page_data dict (used for sitemap-based analysis)."""
     url = normalize_url(url)

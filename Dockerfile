@@ -10,6 +10,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+# Playwright: instala Chromium headless (usado apenas em projetos com "Site JS" ativo)
+RUN python -m playwright install --with-deps chromium
 
 COPY . .
 

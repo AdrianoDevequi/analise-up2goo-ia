@@ -74,12 +74,22 @@
     {% endwith %}
 
     <!-- Analysis running indicator -->
-    <div id="analysisProgress" class="alert alert-warning d-none border-0">
-      <div class="d-flex align-items-center gap-3">
-        <div class="spinner-border spinner-border-sm text-warning" role="status"></div>
-        <div>
-          <strong>Análise em andamento...</strong>
-          <div class="small" id="progressText">Iniciando rastreamento das páginas.</div>
+    <div id="analysisProgress" class="card shadow-sm border-0 border-start border-4 border-warning d-none mb-2">
+      <div class="card-body py-3">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <div class="d-flex align-items-center gap-2">
+            <div class="spinner-border spinner-border-sm text-warning" role="status"></div>
+            <strong class="text-warning-emphasis">Análise em andamento...</strong>
+          </div>
+          <span class="small text-muted" id="progressElapsed">0s</span>
+        </div>
+        <div class="progress mb-2" style="height:6px">
+          <div id="progressBar" class="progress-bar progress-bar-striped progress-bar-animated bg-warning"
+               style="width:100%"></div>
+        </div>
+        <div class="d-flex justify-content-between">
+          <span class="small text-muted" id="progressText">Iniciando rastreamento...</span>
+          <span class="small fw-semibold" id="progressCount"></span>
         </div>
       </div>
     </div>
@@ -131,7 +141,7 @@
       <div class="col-lg-4 col-12 order-lg-last">
         <div class="card shadow-sm border-0 h-100">
           <div class="card-header bg-white border-bottom py-3">
-            <h6 class="mb-0 fw-semibold"><i class="bi bi-file-earmark-code me-2 text-success"></i>Sitemap</h6>
+            <h6 class="mb-0 fw-semibold"><i class="bi bi-gear me-2 text-success"></i>Configurações do Rastreio</h6>
           </div>
           <div class="card-body">
             <form method="POST" action="{{ url_for('admin_update_sitemap', project_id=project.id) }}">
@@ -142,19 +152,40 @@
                        placeholder="https://site.com.br/sitemap.xml">
                 <div class="form-text">O rastreio usará apenas as páginas do sitemap.</div>
               </div>
+              <hr class="my-3">
+              <div class="mb-3">
+                <div class="form-check form-switch">
+                  <input class="form-check-input" type="checkbox" role="switch"
+                         name="use_playwright" id="usePlaywright"
+                         {% if project.use_playwright %}checked{% endif %}>
+                  <label class="form-check-label fw-semibold small" for="usePlaywright">
+                    Site com JavaScript (JS)
+                  </label>
+                </div>
+                <div class="form-text mt-1">
+                  Ativa o Playwright (navegador headless) para sites que carregam conteúdo via JS.
+                  Mais lento, mas lê o conteúdo real renderizado.
+                </div>
+                {% if project.use_playwright %}
+                <div class="mt-2 p-2 bg-info-subtle rounded small text-info-emphasis">
+                  <i class="bi bi-browser-chrome me-1"></i>
+                  Modo JS ativo — próximo rastreio usará Playwright.
+                </div>
+                {% endif %}
+              </div>
               <button type="submit" class="btn btn-sm btn-outline-success w-100">
-                <i class="bi bi-check2 me-1"></i>Salvar Sitemap
+                <i class="bi bi-check2 me-1"></i>Salvar Configurações
               </button>
             </form>
-            {% if project.sitemap_url %}
+            {% if project.sitemap_url and not project.use_playwright %}
             <div class="mt-3 p-2 bg-success-subtle rounded small text-success">
               <i class="bi bi-check-circle me-1"></i>
               Sitemap configurado — o próximo rastreio usará apenas as URLs do sitemap.
             </div>
-            {% else %}
+            {% elif not project.sitemap_url and not project.use_playwright %}
             <div class="mt-3 p-2 bg-warning-subtle rounded small text-warning-emphasis">
               <i class="bi bi-exclamation-triangle me-1"></i>
-              Sem sitemap configurado — o rastreio seguirá links automaticamente.
+              Sem sitemap — o rastreio seguirá links automaticamente.
             </div>
             {% endif %}
           </div>
@@ -549,10 +580,22 @@ function resetAnalysisBtn(errMsg) {
   if (errMsg) alert(errMsg);
 }
 
+let pollStartTime = null;
+let elapsedTimer = null;
+
 function startPolling() {
   if (pollInterval) clearInterval(pollInterval);
-  pollInterval = setInterval(checkStatus, 4000);
+  if (elapsedTimer) clearInterval(elapsedTimer);
+  pollStartTime = Date.now();
+  pollInterval = setInterval(checkStatus, 3000);
   document.getElementById('btnRunAnalysis').disabled = true;
+  document.getElementById('analysisProgress').classList.remove('d-none');
+  elapsedTimer = setInterval(() => {
+    const s = Math.floor((Date.now() - pollStartTime) / 1000);
+    const m = Math.floor(s / 60);
+    document.getElementById('progressElapsed').textContent =
+      m > 0 ? `${m}m ${s % 60}s` : `${s}s`;
+  }, 1000);
 }
 
 function checkStatus() {
@@ -560,12 +603,29 @@ function checkStatus() {
   fetch('/api/analysis/' + currentAnalysisId + '/status')
     .then(r => r.json())
     .then(data => {
-      document.getElementById('progressText').textContent =
-        'Páginas: ' + (data.total_pages || 0) +
-        ' | Problemas: ' + (data.total_issues || 0) +
-        ' | Status: ' + data.status;
+      const pages = data.total_pages || 0;
+      const issues = data.total_issues || 0;
+      const expected = data.pages_expected || 0;
+
+      if (pages > 0) {
+        document.getElementById('progressText').textContent =
+          pages === 1 ? 'Analisando página 1...' : `${pages} páginas analisadas`;
+        document.getElementById('progressCount').textContent =
+          issues > 0 ? `${issues} problema${issues !== 1 ? 's' : ''} encontrado${issues !== 1 ? 's' : ''}` : '';
+
+        if (expected > 0) {
+          const pct = Math.min(Math.round((pages / expected) * 100), 95);
+          const bar = document.getElementById('progressBar');
+          bar.style.width = pct + '%';
+          bar.classList.remove('progress-bar-animated');
+          document.getElementById('progressCount').textContent =
+            `${pages}/${expected} páginas` + (issues > 0 ? ` · ${issues} problemas` : '');
+        }
+      }
+
       if (data.status === 'completed' || data.status === 'error') {
         clearInterval(pollInterval);
+        clearInterval(elapsedTimer);
         location.reload();
       }
     });
