@@ -3,6 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#2563eb">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Análise SEO">
+  <link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}">
+  <link rel="apple-touch-icon" href="{{ url_for('static', filename='icons/icon-192.png') }}">
   <title>{{ project.name }} - Admin</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
@@ -216,51 +222,56 @@
 
       <!-- Analysis summary -->
       <div class="col-lg-8">
-        {% if latest_analysis and latest_analysis.status in ['completed', 'stopped'] %}
+        {% if display_analysis %}
         <div class="card shadow-sm border-0">
           <div class="card-header bg-white border-bottom py-3 d-flex justify-content-between align-items-center">
             <h6 class="mb-0 fw-semibold">
-              <i class="bi bi-bar-chart me-2 text-primary"></i>Última Análise
-              {% if latest_analysis.status == 'stopped' %}
-                <span class="badge bg-info-subtle text-info ms-2" title="{{ latest_analysis.error_message }}">
+              <i class="bi bi-bar-chart me-2 text-primary"></i>
+              {% if latest_analysis and latest_analysis.status in ['running', 'pending'] %}
+                Última Análise Concluída
+              {% else %}
+                Última Análise
+              {% endif %}
+              {% if display_analysis.status == 'stopped' %}
+                <span class="badge bg-info-subtle text-info ms-2">
                   <i class="bi bi-stop-circle me-1"></i>Parcial
                 </span>
               {% endif %}
             </h6>
             <span class="small text-muted">
-              {{ latest_analysis.completed_at.strftime('%d/%m/%Y às %H:%M') if latest_analysis.completed_at else '' }}
+              {{ display_analysis.completed_at.strftime('%d/%m/%Y às %H:%M') if display_analysis.completed_at else '' }}
             </span>
           </div>
           <div class="card-body">
             <div class="row g-3 text-center mb-3">
               <div class="col-3">
                 <div class="stat-mini">
-                  <div class="stat-mini-value text-primary">{{ latest_analysis.total_pages }}</div>
+                  <div class="stat-mini-value text-primary">{{ display_analysis.total_pages }}</div>
                   <div class="stat-mini-label">Páginas</div>
                 </div>
               </div>
               <div class="col-3">
                 <div class="stat-mini">
-                  <div class="stat-mini-value text-danger">{{ latest_analysis.high_issues }}</div>
+                  <div class="stat-mini-value text-danger">{{ display_analysis.high_issues }}</div>
                   <div class="stat-mini-label">Críticos</div>
                 </div>
               </div>
               <div class="col-3">
                 <div class="stat-mini">
-                  <div class="stat-mini-value text-warning">{{ latest_analysis.medium_issues }}</div>
+                  <div class="stat-mini-value text-warning">{{ display_analysis.medium_issues }}</div>
                   <div class="stat-mini-label">Médios</div>
                 </div>
               </div>
               <div class="col-3">
                 <div class="stat-mini">
-                  <div class="stat-mini-value text-info">{{ latest_analysis.low_issues }}</div>
+                  <div class="stat-mini-value text-info">{{ display_analysis.low_issues }}</div>
                   <div class="stat-mini-label">Baixos</div>
                 </div>
               </div>
             </div>
             <!-- Score bar -->
-            {% set _pages = latest_analysis.total_pages if latest_analysis.total_pages > 0 else 1 %}
-            {% set score = [0, (100 - (latest_analysis.high_issues * 10 + latest_analysis.medium_issues * 5 + latest_analysis.low_issues * 2) / _pages * 2) | round | int] | max %}
+            {% set _pages = display_analysis.total_pages if display_analysis.total_pages > 0 else 1 %}
+            {% set score = [0, (100 - (display_analysis.high_issues * 10 + display_analysis.medium_issues * 5 + display_analysis.low_issues * 2) / _pages * 2) | round | int] | max %}
             {% set score = [score, 100] | min %}
             <div class="d-flex justify-content-between align-items-center mb-1">
               <small class="text-muted fw-semibold">Score SEO</small>
@@ -272,14 +283,6 @@
               <div class="progress-bar {% if score >= 70 %}bg-success{% elif score >= 40 %}bg-warning{% else %}bg-danger{% endif %}"
                    style="width:{{ score }}%"></div>
             </div>
-          </div>
-        </div>
-        {% elif latest_analysis and latest_analysis.status == 'running' %}
-        <div class="card shadow-sm border-0">
-          <div class="card-body text-center py-5">
-            <div class="spinner-border text-primary mb-3"></div>
-            <p class="fw-semibold">Análise em andamento...</p>
-            <p class="text-muted small">As páginas estão sendo rastreadas e analisadas.</p>
           </div>
         </div>
         {% elif latest_analysis and latest_analysis.status == 'error' %}
@@ -364,7 +367,7 @@
                 </td>
                 <td class="text-end px-4">
                   <button class="btn btn-sm btn-outline-primary"
-                          onclick="loadPageIssues({{ latest_analysis.id }}, {{ page.id }}, '{{ page.url | replace("'", "\\'") }}')">
+                          onclick="loadPageIssues({{ display_analysis.id }}, {{ page.id }}, '{{ page.url | replace("'", "\\'") }}')">
                     <i class="bi bi-search me-1"></i>Ver
                   </button>
                 </td>

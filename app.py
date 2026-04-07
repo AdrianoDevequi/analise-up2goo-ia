@@ -797,7 +797,12 @@ def admin_project_detail(project_id):
         latest_analysis = analyses[0] if analyses else None
         pages_data = []
 
-        if latest_analysis and latest_analysis['status'] in ('completed', 'stopped'):
+        # Find the most recent completed/stopped analysis for pages display
+        display_analysis = next(
+            (a for a in analyses if a['status'] in ('completed', 'stopped')), None
+        )
+
+        if display_analysis:
             cur.execute('''
                 SELECT pg.*,
                        COUNT(i.id) as total_issue_count,
@@ -809,13 +814,14 @@ def admin_project_detail(project_id):
                 WHERE pg.analysis_id = %s
                 GROUP BY pg.id
                 ORDER BY COUNT(i.id) DESC
-            ''', (latest_analysis['id'],))
+            ''', (display_analysis['id'],))
             pages_data = cur.fetchall()
 
     return render_template('admin/project_detail.html',
                            project=project,
                            analyses=analyses,
                            latest_analysis=latest_analysis,
+                           display_analysis=display_analysis,
                            pages_data=pages_data)
 
 
