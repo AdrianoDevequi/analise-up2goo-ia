@@ -1262,6 +1262,84 @@ def client_page_issues(project_id, page_id):
 
 
 # ---------------------------------------------------------------------------
+# Validate corrections – re-crawl a single page and compare issues
+# ---------------------------------------------------------------------------
+
+@app.route('/cliente/projeto/<int:project_id>/validar/<int:page_id>', methods=['POST'])
+@login_required
+def client_validate_page(project_id, page_id):
+    from crawler import fetch_page
+    from analyzer import analyze_page
+
+    db = get_db()
+    with db.cursor() as cur:
+        # Validate ownership
+        if session.get('role') == 'admin':
+            cur.execute('SELECT id FROM projects WHERE id=%s', (project_id,))
+        else:
+            cur.execute('SELECT id FROM projects WHERE id=%s AND client_id=%s',
+                        (project_id, session['user_id']))
+        if not cur.fetchone():
+            return jsonify({'error': 'Acesso negado'}), 403
+
+        # Get existing page and its issues
+        cur.execute('SELECT * FROM pages WHERE id=%s', (page_id,))
+        page = cur.fetchone()
+        if not page:
+            return jsonify({'error': 'Página não encontrada'}), 404
+
+        cur.execute(
+            'SELECT * FROM issues WHERE page_id=%s ORDER BY CASE severity WHEN %s THEN 1 WHEN %s THEN 2 ELSE 3 END',
+            (page_id, 'high', 'medium')
+        )
+        old_issues = cur.fetchall()
+
+    # Build set of old issue identifiers (category + title)
+    old_issue_keys = {(i['category'], i['title']) for i in old_issues}
+
+    # Re-crawl the URL
+    url = page['url']
+    page_data = fetch_page(url)
+    if not page_data:
+        return jsonify({'error': 'Não foi possível acessar a URL'}), 500
+
+    # Re-analyze
+    new_issues_raw, word_count = analyze_page(page_data)
+    new_issue_keys = {(i['category'], i['title']) for i in new_issues_raw}
+
+    # Compare
+    fixed = []
+    for iss in old_issues:
+        key = (iss['category'], iss['title'])
+        if key not in new_issue_keys:
+            fixed.append(dict(iss))
+
+    remaining = []
+    for iss in new_issues_raw:
+        key = (iss['category'], iss['title'])
+        if key in old_issue_keys:
+            remaining.append(iss)
+
+    new_found = []
+    for iss in new_issues_raw:
+        key = (iss['category'], iss['title'])
+        if key not in old_issue_keys:
+            new_found.append(iss)
+
+    return jsonify({
+        'url': url,
+        'title': page_data.get('title', ''),
+        'old_count': len(old_issues),
+        'fixed': fixed,
+        'remaining': remaining,
+        'new_found': new_found,
+        'fixed_count': len(fixed),
+        'remaining_count': len(remaining),
+        'new_count': len(new_found),
+    })
+
+
+# ---------------------------------------------------------------------------
 # Export issues to Excel spreadsheet
 # ---------------------------------------------------------------------------
 
