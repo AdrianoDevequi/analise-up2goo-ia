@@ -755,6 +755,12 @@ def index():
     if 'user_id' in session:
         if session.get('role') == 'admin':
             return redirect(url_for('admin_dashboard'))
+        db = get_db()
+        with db.cursor() as cur:
+            cur.execute('SELECT id FROM projects WHERE client_id = %s', (session['user_id'],))
+            projects = cur.fetchall()
+        if len(projects) == 1:
+            return redirect(url_for('client_project_view', project_id=projects[0]['id']))
         return redirect(url_for('client_dashboard'))
     return redirect(url_for('login'))
 
@@ -780,6 +786,11 @@ def login():
             session['name'] = user['name']
             if user['role'] == 'admin':
                 return redirect(url_for('admin_dashboard'))
+            with db.cursor() as cur2:
+                cur2.execute('SELECT id FROM projects WHERE client_id = %s', (user['id'],))
+                projects = cur2.fetchall()
+            if len(projects) == 1:
+                return redirect(url_for('client_project_view', project_id=projects[0]['id']))
             return redirect(url_for('client_dashboard'))
 
         flash('E-mail ou senha incorretos.', 'danger')

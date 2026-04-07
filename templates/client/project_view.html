@@ -577,6 +577,16 @@ function renderIssues(issues) {
                 <span class="small">${issue.suggestion}</span>
               </div>` : ''}
               ${aiSection}
+              ${issue.category === 'legibilidade' ? `
+              <div class="mt-2">
+                <button class="btn btn-sm btn-outline-secondary" style="font-size:12px"
+                        onclick="copyReadabilityPrompt(${JSON.stringify(issue).replace(/'/g, '&#39;')})">
+                  <i class="bi bi-robot me-1"></i>Copiar prompt para IA
+                </button>
+                <span id="copy-ok-${issue.id}" class="small text-success ms-2" style="display:none">
+                  <i class="bi bi-check2"></i> Copiado!
+                </span>
+              </div>` : ''}
               ${shouldShowGenerateBtn(issue) ? `
               <div class="mt-2" id="gen-wrap-${issue.id}">
                 <button class="btn btn-sm btn-outline-primary" style="font-size:12px"
@@ -593,6 +603,43 @@ function renderIssues(issues) {
   }
 
   document.getElementById('issuesBody').innerHTML = html;
+}
+
+function copyReadabilityPrompt(issue) {
+  // Parse metrics from current_value: "Flesch 31.8 | Difícil | 36 frases, 766 palavras"
+  const cv = issue.current_value || '';
+  const scoreMatch = cv.match(/Flesch\s*([\d.]+)/i);
+  const levelMatch = cv.match(/\|\s*([^|]+?)\s*\|/);
+  const sentMatch  = cv.match(/([\d]+)\s*frases?/i);
+  const wordMatch  = cv.match(/([\d]+)\s*palavras?/i);
+
+  const score    = scoreMatch  ? scoreMatch[1]  : '?';
+  const level    = levelMatch  ? levelMatch[1].trim() : '?';
+  const frases   = sentMatch   ? sentMatch[1]   : '?';
+  const palavras = wordMatch   ? wordMatch[1]   : '?';
+
+  const prompt = `Preciso que você reescreva o texto abaixo para melhorar a legibilidade, tornando-o mais fácil de ler.
+
+Situação atual do texto:
+- Índice de Flesch: ${score}/100 (${level})
+- Número de frases: ${frases}
+- Número de palavras: ${palavras}
+- Meta recomendada: Flesch entre 50 e 75
+
+O que você deve fazer:
+1. Reduza o comprimento médio das frases — quebre frases longas em frases curtas e diretas.
+2. Prefira palavras simples e comuns no lugar de termos técnicos ou rebuscados.
+3. Use listas ou tópicos onde fizer sentido para facilitar a leitura.
+4. Mantenha o sentido original e todas as informações importantes do texto.
+5. Não invente informações novas.
+
+Texto original:
+[COLE O TEXTO AQUI]`;
+
+  navigator.clipboard.writeText(prompt).then(() => {
+    const ok = document.getElementById('copy-ok-' + issue.id);
+    if (ok) { ok.style.display = 'inline'; setTimeout(() => ok.style.display = 'none', 3000); }
+  });
 }
 
 function shouldShowGenerateBtn(issue) {
