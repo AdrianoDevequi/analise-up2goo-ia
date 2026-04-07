@@ -18,6 +18,7 @@ from dotenv import load_dotenv
 from crawler import crawl_website
 from analyzer import analyze_page, get_ai_suggestions
 from sf_importer import process_sf_csv, crawl_with_sf_cli, sf_cli_available
+from sitemap_parser import get_sitemap_urls, guess_sitemap_url
 
 load_dotenv()
 
@@ -125,6 +126,7 @@ def init_db():
                     id SERIAL PRIMARY KEY,
                     name TEXT NOT NULL,
                     url TEXT NOT NULL,
+                    sitemap_url TEXT,
                     client_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
                     plain_password TEXT,
                     notes TEXT,
@@ -170,6 +172,20 @@ def init_db():
                     ai_suggestion JSONB
                 );
             ''')
+            conn.commit()
+
+            # Migration: add sitemap_url if missing (existing deployments)
+            cur.execute("""
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_name='projects' AND column_name='sitemap_url'
+                    ) THEN
+                        ALTER TABLE projects ADD COLUMN sitemap_url TEXT;
+                    END IF;
+                END $$;
+            """)
             conn.commit()
 
             # Default admin
@@ -221,7 +237,7 @@ def admin_required(f):
 # Background analysis
 # ---------------------------------------------------------------------------
 
-def run_analysis_background(analysis_id, project_url):
+def run_analysis_background(analysis_id, project_url, sitemap_url=None):
     """Runs the full crawl + SEO analysis in a background thread."""
     with get_thread_db() as conn:
         with conn.cursor() as cur:
@@ -232,7 +248,29 @@ def run_analysis_background(analysis_id, project_url):
                 )
                 conn.commit()
 
-                pages = crawl_website(project_url, max_pages=30)
+                if sitemap_url:
+                    print(f'[ANALYSIS] Usando sitemap: {sitemap_url}')
+                    try:
+                        sitemap_urls = get_sitemap_urls(sitemap_url, max_urls=100)
+                        print(f'[ANALYSIS] {len(sitemap_urls)} URLs encontradas no sitemap')
+                    except Exception as e:
+                        print(f'[ANALYSIS] Falha ao ler sitemap, fazendo crawl normal: {e}')
+                        sitemap_urls = None
+
+                    if sitemap_urls:
+                        from crawler import fetch_page
+                        pages = []
+                        for url in sitemap_urls[:50]:
+                            try:
+                                page_data = fetch_page(url)
+                                if page_data:
+                                    pages.append(page_data)
+                            except Exception as e:
+                                print(f'[ANALYSIS] Erro ao buscar {url}: {e}')
+                    else:
+                        pages = crawl_website(project_url, max_pages=50)
+                else:
+                    pages = crawl_website(project_url, max_pages=30)
 
                 total_issues = 0
                 high_issues = 0
@@ -632,6 +670,7 @@ def admin_new_project():
         client_name = request.form.get('client_name', '').strip()
         client_email = request.form.get('client_email', '').strip().lower()
         project_url = request.form.get('project_url', '').strip()
+        sitemap_url = request.form.get('sitemap_url', '').strip() or None
         notes = request.form.get('notes', '').strip()
 
         if not all([project_name, client_name, client_email, project_url]):
@@ -641,6 +680,10 @@ def admin_new_project():
         # Normalize URL
         if not project_url.startswith(('http://', 'https://')):
             project_url = 'https://' + project_url
+
+        # Auto-fill sitemap if not provided
+        if not sitemap_url:
+            sitemap_url = guess_sitemap_url(project_url)
 
         db = get_db()
         with db.cursor() as cur:
@@ -665,8 +708,8 @@ def admin_new_project():
                 client_id = cur.fetchone()['id']
 
             cur.execute(
-                'INSERT INTO projects (name, url, client_id, plain_password, notes) VALUES (%s, %s, %s, %s, %s) RETURNING id',
-                (project_name, project_url, client_id, plain_password, notes)
+                'INSERT INTO projects (name, url, sitemap_url, client_id, plain_password, notes) VALUES (%s, %s, %s, %s, %s, %s) RETURNING id',
+                (project_name, project_url, sitemap_url, client_id, plain_password, notes)
             )
             project_id = cur.fetchone()['id']
             db.commit()
@@ -724,6 +767,19 @@ def admin_project_detail(project_id):
                            pages_data=pages_data)
 
 
+@app.route('/admin/projetos/<int:project_id>/atualizar-sitemap', methods=['POST'])
+@admin_required
+def admin_update_sitemap(project_id):
+    """Update the sitemap_url for an existing project."""
+    sitemap_url = request.form.get('sitemap_url', '').strip() or None
+    db = get_db()
+    with db.cursor() as cur:
+        cur.execute('UPDATE projects SET sitemap_url=%s WHERE id=%s', (sitemap_url, project_id))
+        db.commit()
+    flash('URL do sitemap atualizada com sucesso.', 'success')
+    return redirect(url_for('admin_project_detail', project_id=project_id))
+
+
 @app.route('/admin/projetos/<int:project_id>/analisar', methods=['POST'])
 @admin_required
 def admin_run_analysis(project_id):
@@ -755,6 +811,7 @@ def admin_run_analysis(project_id):
     thread = threading.Thread(
         target=run_analysis_background,
         args=(analysis_id, project['url']),
+        kwargs={'sitemap_url': project.get('sitemap_url') or None},
         daemon=True
     )
     thread.start()

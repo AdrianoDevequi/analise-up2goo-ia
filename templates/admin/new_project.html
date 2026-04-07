@@ -46,14 +46,22 @@
                 <input type="text" name="project_name" class="form-control" required
                        placeholder="Ex: Loja Moda Feminina">
               </div>
-              <div class="mb-4">
+              <div class="mb-3">
                 <label class="form-label fw-semibold">URL do Site <span class="text-danger">*</span></label>
                 <div class="input-group">
                   <span class="input-group-text text-muted"><i class="bi bi-globe"></i></span>
                   <input type="text" name="project_url" class="form-control" required
                          placeholder="https://www.sitedobcliente.com.br">
                 </div>
-                <div class="form-text">O sistema irá rastrear e analisar todas as páginas deste domínio.</div>
+              </div>
+              <div class="mb-4">
+                <label class="form-label fw-semibold">URL do Sitemap</label>
+                <div class="input-group">
+                  <span class="input-group-text text-muted"><i class="bi bi-file-earmark-code"></i></span>
+                  <input type="text" name="sitemap_url" class="form-control"
+                         placeholder="https://www.site.com.br/sitemap.xml">
+                </div>
+                <div class="form-text">O rastreio usará apenas as páginas listadas no sitemap. Se deixar em branco, tentará <code>/sitemap.xml</code> automaticamente.</div>
               </div>
 
               <hr class="my-4">

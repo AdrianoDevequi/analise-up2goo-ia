@@ -127,6 +127,40 @@
         </div>
       </div>
 
+      <!-- Sitemap config -->
+      <div class="col-lg-4 col-12 order-lg-last">
+        <div class="card shadow-sm border-0 h-100">
+          <div class="card-header bg-white border-bottom py-3">
+            <h6 class="mb-0 fw-semibold"><i class="bi bi-file-earmark-code me-2 text-success"></i>Sitemap</h6>
+          </div>
+          <div class="card-body">
+            <form method="POST" action="{{ url_for('admin_update_sitemap', project_id=project.id) }}">
+              <div class="mb-3">
+                <label class="small text-muted fw-semibold d-block mb-1">URL DO SITEMAP</label>
+                <input type="text" name="sitemap_url" class="form-control form-control-sm"
+                       value="{{ project.sitemap_url or '' }}"
+                       placeholder="https://site.com.br/sitemap.xml">
+                <div class="form-text">O rastreio usará apenas as páginas do sitemap.</div>
+              </div>
+              <button type="submit" class="btn btn-sm btn-outline-success w-100">
+                <i class="bi bi-check2 me-1"></i>Salvar Sitemap
+              </button>
+            </form>
+            {% if project.sitemap_url %}
+            <div class="mt-3 p-2 bg-success-subtle rounded small text-success">
+              <i class="bi bi-check-circle me-1"></i>
+              Sitemap configurado — o próximo rastreio usará apenas as URLs do sitemap.
+            </div>
+            {% else %}
+            <div class="mt-3 p-2 bg-warning-subtle rounded small text-warning-emphasis">
+              <i class="bi bi-exclamation-triangle me-1"></i>
+              Sem sitemap configurado — o rastreio seguirá links automaticamente.
+            </div>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+
       <!-- Analysis summary -->
       <div class="col-lg-8">
         {% if latest_analysis and latest_analysis.status == 'completed' %}

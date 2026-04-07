@@ -131,3 +131,47 @@ def crawl_website(base_url, max_pages=30, callback=None):
         time.sleep(0.3)  # Polite crawling
 
     return pages
+
+
+def fetch_page(url):
+    """Fetch a single page and return a page_data dict (used for sitemap-based analysis)."""
+    url = normalize_url(url)
+    if not should_crawl(url):
+        return None
+
+    page_data = {
+        'url': url,
+        'status_code': 0,
+        'soup': None,
+        'title': '',
+        'load_time': 0.0,
+        'error': None
+    }
+
+    try:
+        start = time.time()
+        response = requests.get(url, headers=HEADERS, timeout=12, allow_redirects=True)
+        page_data['load_time'] = round(time.time() - start, 2)
+        page_data['status_code'] = response.status_code
+
+        content_type = response.headers.get('Content-Type', '')
+        if 'text/html' not in content_type:
+            return page_data
+
+        soup = BeautifulSoup(response.text, 'lxml')
+        for tag in soup(['script', 'style', 'noscript', 'header', 'footer', 'nav']):
+            tag.decompose()
+
+        page_data['soup'] = soup
+        title_tag = soup.find('title')
+        page_data['title'] = title_tag.get_text().strip() if title_tag else ''
+
+    except requests.exceptions.Timeout:
+        page_data['error'] = 'Timeout'
+    except requests.exceptions.ConnectionError:
+        page_data['error'] = 'Erro de conexão'
+    except Exception as e:
+        page_data['error'] = str(e)
+
+    time.sleep(0.3)
+    return page_data
