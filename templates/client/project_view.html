@@ -190,9 +190,12 @@
                 <div class="fw-semibold text-truncate small mb-1">
                   {{ page.title or '(sem título)' }}
                 </div>
-                <div class="text-muted text-truncate" style="font-size:12px">
+                <a href="{{ page.url }}" target="_blank"
+                   class="text-muted text-truncate text-decoration-none d-block"
+                   style="font-size:12px"
+                   onclick="event.stopPropagation()">
                   {{ page.url }}
-                </div>
+                </a>
               </div>
 
               <!-- Score bar -->
