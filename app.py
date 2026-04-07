@@ -1105,7 +1105,9 @@ def client_project_view(project_id):
                        COUNT(i.id) as total_issue_count,
                        COUNT(CASE WHEN i.severity='high' THEN 1 END) as high_count,
                        COUNT(CASE WHEN i.severity='medium' THEN 1 END) as medium_count,
-                       COUNT(CASE WHEN i.severity='low' THEN 1 END) as low_count
+                       COUNT(CASE WHEN i.severity='low' THEN 1 END) as low_count,
+                       COALESCE(array_agg(DISTINCT i.category) FILTER (WHERE i.category IS NOT NULL), '{}') as issue_categories,
+                       COALESCE(array_agg(DISTINCT i.severity) FILTER (WHERE i.severity IS NOT NULL), '{}') as issue_severities
                 FROM pages pg
                 LEFT JOIN issues i ON i.page_id = pg.id
                 WHERE pg.analysis_id = %s
