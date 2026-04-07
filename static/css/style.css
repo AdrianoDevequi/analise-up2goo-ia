@@ -384,6 +384,38 @@ body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; margin: 0;
 .grade-danger   { background: #fee2e2; color: #b91c1c; }
 
 /* ============================================================
+   SF UPLOAD ZONES
+   ============================================================ */
+.upload-zone {
+  border: 2px dashed #cbd5e1;
+  border-radius: 12px;
+  padding: 1.5rem 1rem;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color .2s, background .2s;
+  background: #f8fafc;
+  user-select: none;
+}
+
+.upload-zone:hover,
+.upload-zone-drag {
+  border-color: var(--primary);
+  background: #eef2ff;
+}
+
+.upload-zone-optional {
+  border-style: dashed;
+  border-color: #e2e8f0;
+  opacity: .75;
+}
+
+.upload-zone-done {
+  border-color: #22c55e !important;
+  background: #f0fdf4 !important;
+  opacity: 1 !important;
+}
+
+/* ============================================================
    UTILITIES
    ============================================================ */
 .table th {

@@ -17,6 +17,7 @@ from dotenv import load_dotenv
 
 from crawler import crawl_website
 from analyzer import analyze_page, get_ai_suggestions
+from sf_importer import process_sf_csv, crawl_with_sf_cli, sf_cli_available
 
 load_dotenv()
 
@@ -284,6 +285,204 @@ def run_analysis_background(analysis_id, project_url):
 
 
 # ---------------------------------------------------------------------------
+# Shared background helper: save SF/CLI results to DB
+# ---------------------------------------------------------------------------
+
+def _save_sf_results_to_db(conn, analysis_id, sf_results, has_api_key):
+    """Persist Screaming Frog parsed results (pages + issues) to the database."""
+    import json as _json
+    total_issues = high_issues = medium_issues = low_issues = 0
+
+    with conn.cursor() as cur:
+        for page_data, issues in sf_results:
+            ai_data = None
+            if has_api_key and issues:
+                # Build a lightweight page_data dict for AI suggestions
+                ai_page = {
+                    'url': page_data['url'],
+                    'soup': None,
+                    '_sf_title': page_data.get('title', ''),
+                    '_sf_meta': page_data.get('_meta', ''),
+                    '_sf_h1': page_data.get('_h1', ''),
+                }
+                ai_data = _get_ai_from_sf_data(ai_page)
+
+            cur.execute(
+                '''INSERT INTO pages (analysis_id, url, title, status_code, word_count, load_time, issue_count)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id''',
+                (
+                    analysis_id,
+                    page_data['url'],
+                    page_data.get('title', ''),
+                    page_data.get('status_code', 0),
+                    page_data.get('word_count', 0),
+                    page_data.get('load_time', 0),
+                    len(issues)
+                )
+            )
+            page_id = cur.fetchone()['id']
+            conn.commit()
+
+            for issue in issues:
+                ai_json = _json.dumps(ai_data, ensure_ascii=False) if ai_data else None
+                cur.execute(
+                    '''INSERT INTO issues (page_id, category, severity, title,
+                                          description, current_value, suggestion, ai_suggestion)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s)''',
+                    (
+                        page_id,
+                        issue['category'], issue['severity'], issue['title'],
+                        issue.get('description', ''), issue.get('current_value', ''),
+                        issue.get('suggestion', ''), ai_json
+                    )
+                )
+                total_issues += 1
+                if issue['severity'] == 'high':   high_issues += 1
+                elif issue['severity'] == 'medium': medium_issues += 1
+                else:                               low_issues += 1
+
+            conn.commit()
+
+    return total_issues, high_issues, medium_issues, low_issues
+
+
+def _get_ai_from_sf_data(page_data):
+    """Call Claude AI using SF metadata (title, meta, H1) instead of full HTML."""
+    import os, re, json as _json
+    api_key = os.environ.get('ANTHROPIC_API_KEY', '')
+    if not api_key:
+        return None
+    try:
+        import anthropic
+        title = page_data.get('_sf_title') or page_data.get('title', '')
+        meta  = page_data.get('_sf_meta', '')
+        h1    = page_data.get('_sf_h1', '')
+        url   = page_data.get('url', '')
+
+        prompt = f"""Você é especialista em SEO e copywriting para o mercado brasileiro.
+Analise os elementos desta página e sugira melhorias otimizadas para SEO.
+
+URL: {url}
+Título atual: {title or '(ausente)'}
+Meta description atual: {meta or '(ausente)'}
+H1 atual: {h1 or '(ausente)'}
+
+Retorne APENAS JSON válido (sem markdown):
+{{
+  "titulo": "Título otimizado com 50-60 caracteres",
+  "meta_description": "Meta description persuasiva com 150-160 caracteres e call-to-action",
+  "h1": "H1 principal otimizado",
+  "dica_conteudo": "Sugestão prática para melhorar o conteúdo desta página",
+  "palavras_chave": ["kw1", "kw2", "kw3"]
+}}
+
+Use português brasileiro. Seja específico ao nicho identificado na URL/título."""
+
+        client = anthropic.Anthropic(api_key=api_key)
+        msg = client.messages.create(
+            model='claude-sonnet-4-6',
+            max_tokens=600,
+            messages=[{'role': 'user', 'content': prompt}]
+        )
+        text = msg.content[0].text.strip()
+        m = re.search(r'\{[\s\S]*\}', text)
+        if m:
+            return _json.loads(m.group())
+    except Exception as e:
+        print(f'[AI/SF] {e}')
+    return None
+
+
+def run_sf_import_background(analysis_id, sf_results):
+    """Background thread: persist pre-parsed SF results to DB."""
+    with get_thread_db() as conn:
+        with conn.cursor() as cur:
+            try:
+                cur.execute(
+                    'UPDATE analyses SET status=%s, started_at=%s WHERE id=%s',
+                    ('running', datetime.now(), analysis_id)
+                )
+                conn.commit()
+            except Exception as e:
+                print(f'[SF IMPORT] Error setting running: {e}')
+                return
+
+        has_api_key = bool(os.environ.get('ANTHROPIC_API_KEY', '').strip())
+        total, high, medium, low = _save_sf_results_to_db(conn, analysis_id, sf_results, has_api_key)
+
+        with conn.cursor() as cur:
+            try:
+                cur.execute(
+                    '''UPDATE analyses SET status=%s, completed_at=%s,
+                           total_pages=%s, total_issues=%s,
+                           high_issues=%s, medium_issues=%s, low_issues=%s
+                       WHERE id=%s''',
+                    ('completed', datetime.now(),
+                     len(sf_results), total, high, medium, low,
+                     analysis_id)
+                )
+                conn.commit()
+            except Exception as e:
+                print(f'[SF IMPORT] Error completing: {e}')
+                try:
+                    cur.execute(
+                        "UPDATE analyses SET status='error', error_message=%s WHERE id=%s",
+                        (str(e), analysis_id)
+                    )
+                    conn.commit()
+                except Exception:
+                    pass
+
+
+def run_sf_cli_background(analysis_id, project_url):
+    """Background thread: run SF CLI, parse output, save to DB."""
+    with get_thread_db() as conn:
+        with conn.cursor() as cur:
+            try:
+                cur.execute(
+                    'UPDATE analyses SET status=%s, started_at=%s WHERE id=%s',
+                    ('running', datetime.now(), analysis_id)
+                )
+                conn.commit()
+            except Exception:
+                return
+
+        try:
+            sf_results = crawl_with_sf_cli(project_url)
+        except Exception as e:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE analyses SET status='error', error_message=%s WHERE id=%s",
+                    (str(e), analysis_id)
+                )
+                conn.commit()
+            return
+
+        has_api_key = bool(os.environ.get('ANTHROPIC_API_KEY', '').strip())
+        total, high, medium, low = _save_sf_results_to_db(conn, analysis_id, sf_results, has_api_key)
+
+        with conn.cursor() as cur:
+            try:
+                cur.execute(
+                    '''UPDATE analyses SET status=%s, completed_at=%s,
+                           total_pages=%s, total_issues=%s,
+                           high_issues=%s, medium_issues=%s, low_issues=%s
+                       WHERE id=%s''',
+                    ('completed', datetime.now(),
+                     len(sf_results), total, high, medium, low,
+                     analysis_id)
+                )
+                conn.commit()
+            except Exception as e:
+                with conn.cursor() as cur2:
+                    cur2.execute(
+                        "UPDATE analyses SET status='error', error_message=%s WHERE id=%s",
+                        (str(e), analysis_id)
+                    )
+                    conn.commit()
+
+
+# ---------------------------------------------------------------------------
 # Auth routes
 # ---------------------------------------------------------------------------
 
@@ -523,6 +722,105 @@ def admin_run_analysis(project_id):
     thread.start()
 
     return jsonify({'analysis_id': analysis_id, 'status': 'started'})
+
+
+@app.route('/admin/projetos/<int:project_id>/importar-sf', methods=['POST'])
+@admin_required
+def admin_sf_upload(project_id):
+    """Receive uploaded Screaming Frog CSV files, create analysis and process in background."""
+    db = get_db()
+    with db.cursor() as cur:
+        cur.execute('SELECT * FROM projects WHERE id = %s', (project_id,))
+        project = cur.fetchone()
+        if not project:
+            return jsonify({'error': 'Projeto não encontrado'}), 404
+
+        cur.execute(
+            "SELECT id FROM analyses WHERE project_id=%s AND status IN ('pending','running')",
+            (project_id,)
+        )
+        if cur.fetchone():
+            return jsonify({'error': 'Já existe uma análise em andamento para este projeto'}), 400
+
+    internal_file = request.files.get('internal_csv')
+    images_file   = request.files.get('images_csv')
+
+    if not internal_file or internal_file.filename == '':
+        return jsonify({'error': 'Arquivo "Internal:All" é obrigatório'}), 400
+
+    internal_bytes = internal_file.read()
+    images_bytes   = images_file.read() if images_file and images_file.filename else None
+
+    # Parse now (in request context) — fast, just CSV reading
+    try:
+        sf_results = process_sf_csv(internal_bytes, images_bytes)
+    except Exception as e:
+        return jsonify({'error': f'Erro ao ler o CSV: {e}'}), 400
+
+    if not sf_results:
+        return jsonify({'error': 'Nenhuma página HTML encontrada no CSV. Verifique o arquivo.'}), 400
+
+    db = get_db()
+    with db.cursor() as cur:
+        cur.execute(
+            "INSERT INTO analyses (project_id, status) VALUES (%s, 'pending') RETURNING id",
+            (project_id,)
+        )
+        analysis_id = cur.fetchone()['id']
+        db.commit()
+
+    thread = threading.Thread(
+        target=run_sf_import_background,
+        args=(analysis_id, sf_results),
+        daemon=True
+    )
+    thread.start()
+
+    return jsonify({'analysis_id': analysis_id, 'status': 'started', 'pages': len(sf_results)})
+
+
+@app.route('/admin/projetos/<int:project_id>/sf-cli', methods=['POST'])
+@admin_required
+def admin_sf_cli(project_id):
+    """Trigger Screaming Frog CLI crawl for this project."""
+    if not sf_cli_available():
+        return jsonify({'error': 'Screaming Frog CLI não encontrado. Configure SF_CLI_PATH no .env'}), 400
+
+    db = get_db()
+    with db.cursor() as cur:
+        cur.execute('SELECT * FROM projects WHERE id = %s', (project_id,))
+        project = cur.fetchone()
+        if not project:
+            return jsonify({'error': 'Projeto não encontrado'}), 404
+
+        cur.execute(
+            "SELECT id FROM analyses WHERE project_id=%s AND status IN ('pending','running')",
+            (project_id,)
+        )
+        if cur.fetchone():
+            return jsonify({'error': 'Já existe uma análise em andamento para este projeto'}), 400
+
+        cur.execute(
+            "INSERT INTO analyses (project_id, status) VALUES (%s, 'pending') RETURNING id",
+            (project_id,)
+        )
+        analysis_id = cur.fetchone()['id']
+        db.commit()
+
+    thread = threading.Thread(
+        target=run_sf_cli_background,
+        args=(analysis_id, project['url']),
+        daemon=True
+    )
+    thread.start()
+
+    return jsonify({'analysis_id': analysis_id, 'status': 'started'})
+
+
+@app.route('/api/sf-cli-available')
+@admin_required
+def api_sf_cli_available():
+    return jsonify({'available': sf_cli_available()})
 
 
 @app.route('/admin/projetos/<int:project_id>/excluir', methods=['POST'])

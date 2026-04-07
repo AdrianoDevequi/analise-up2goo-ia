@@ -28,9 +28,40 @@
             <i class="bi bi-box-arrow-up-right ms-1" style="font-size:10px"></i>
           </a>
         </div>
-        <button class="btn btn-primary" id="btnRunAnalysis" onclick="runAnalysis({{ project.id }})">
-          <i class="bi bi-play-circle me-2"></i>Iniciar Nova Análise
-        </button>
+        <!-- Analysis method selector -->
+        <div class="btn-group" role="group">
+          <button class="btn btn-primary" id="btnRunAnalysis" onclick="runAnalysis({{ project.id }})">
+            <i class="bi bi-robot me-2"></i>Rastrear Automaticamente
+          </button>
+          <button type="button" class="btn btn-primary dropdown-toggle dropdown-toggle-split"
+                  data-bs-toggle="dropdown" aria-expanded="false">
+            <span class="visually-hidden">Mais opções</span>
+          </button>
+          <ul class="dropdown-menu dropdown-menu-end">
+            <li>
+              <button class="dropdown-item" onclick="runAnalysis({{ project.id }})">
+                <i class="bi bi-robot me-2 text-primary"></i>
+                <strong>Rastrear Automaticamente</strong>
+                <div class="small text-muted ps-4">Crawler Python integrado</div>
+              </button>
+            </li>
+            <li>
+              <button class="dropdown-item" id="btnSfCli" onclick="runSfCli({{ project.id }})">
+                <i class="bi bi-terminal me-2 text-success"></i>
+                <strong>Screaming Frog CLI</strong>
+                <div class="small text-muted ps-4">Execução local (requer SF instalado)</div>
+              </button>
+            </li>
+            <li><hr class="dropdown-divider"></li>
+            <li>
+              <button class="dropdown-item" data-bs-toggle="modal" data-bs-target="#sfUploadModal">
+                <i class="bi bi-upload me-2 text-warning"></i>
+                <strong>Importar CSV do Screaming Frog</strong>
+                <div class="small text-muted ps-4">Funciona em qualquer ambiente</div>
+              </button>
+            </li>
+          </ul>
+        </div>
       </div>
     </div>
 
@@ -254,6 +285,80 @@
   </div>
 </div>
 
+<!-- SF Upload Modal -->
+<div class="modal fade" id="sfUploadModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content border-0 shadow">
+      <div class="modal-header border-0 pb-0">
+        <div>
+          <h5 class="modal-title fw-bold">
+            <i class="bi bi-upload me-2 text-warning"></i>Importar CSV do Screaming Frog
+          </h5>
+          <p class="small text-muted mb-0 mt-1">Funciona em qualquer ambiente (local ou servidor)</p>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body pt-3">
+
+        <div class="alert alert-info border-0 bg-info-subtle small mb-4">
+          <i class="bi bi-info-circle-fill me-2"></i>
+          No Screaming Frog, vá em <strong>Reports → Export → Internal:All</strong> para o CSV principal.
+          Para as imagens sem alt, exporte <strong>Images → Missing Alt Text</strong>.
+        </div>
+
+        <form id="sfUploadForm" enctype="multipart/form-data">
+          <div class="mb-3">
+            <label class="form-label fw-semibold">
+              Internal:All CSV <span class="text-danger">*</span>
+            </label>
+            <div class="upload-zone" id="internalDropZone" onclick="document.getElementById('internalCsvInput').click()">
+              <i class="bi bi-file-earmark-spreadsheet fs-2 text-muted d-block mb-2"></i>
+              <div class="fw-semibold small">Clique ou arraste o arquivo aqui</div>
+              <div class="text-muted" style="font-size:12px">internal_all.csv</div>
+              <div id="internalFileName" class="mt-2 text-success small fw-semibold"></div>
+            </div>
+            <input type="file" id="internalCsvInput" name="internal_csv"
+                   accept=".csv,text/csv" class="d-none"
+                   onchange="showFileName(this, 'internalFileName', 'internalDropZone')">
+          </div>
+
+          <div class="mb-4">
+            <label class="form-label fw-semibold">
+              Images – Missing Alt Text CSV
+              <span class="badge bg-secondary-subtle text-secondary border-0 ms-1">opcional</span>
+            </label>
+            <div class="upload-zone upload-zone-optional" id="imagesDropZone"
+                 onclick="document.getElementById('imagesCsvInput').click()">
+              <i class="bi bi-image fs-2 text-muted d-block mb-2 opacity-50"></i>
+              <div class="small text-muted">Clique ou arraste (opcional)</div>
+              <div class="text-muted" style="font-size:12px">images_missing_alt_text.csv</div>
+              <div id="imagesFileName" class="mt-2 text-success small fw-semibold"></div>
+            </div>
+            <input type="file" id="imagesCsvInput" name="images_csv"
+                   accept=".csv,text/csv" class="d-none"
+                   onchange="showFileName(this, 'imagesFileName', 'imagesDropZone')">
+          </div>
+
+          <div id="sfUploadError" class="alert alert-danger d-none small"></div>
+          <div id="sfUploadProgress" class="d-none">
+            <div class="d-flex align-items-center gap-2 text-primary">
+              <div class="spinner-border spinner-border-sm"></div>
+              <span class="small">Processando CSV e salvando análise...</span>
+            </div>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer border-0 pt-0">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-warning text-white fw-semibold"
+                onclick="submitSfUpload({{ project.id }})">
+          <i class="bi bi-upload me-2"></i>Importar e Analisar
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Issues Modal -->
 <div class="modal fade" id="issuesModal" tabindex="-1">
   <div class="modal-dialog modal-lg modal-dialog-scrollable">
@@ -275,6 +380,7 @@
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 <script src="{{ url_for('static', filename='js/main.js') }}"></script>
 <script>
+const PROJECT_ID = {{ project.id }};
 let currentAnalysisId = null;
 let pollInterval = null;
 
@@ -283,29 +389,130 @@ currentAnalysisId = {{ latest_analysis.id }};
 startPolling();
 {% endif %}
 
-function runAnalysis(projectId) {
-  const btn = document.getElementById('btnRunAnalysis');
-  btn.disabled = true;
-  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Iniciando...';
-  document.getElementById('analysisProgress').classList.remove('d-none');
+// Check if SF CLI is available on this machine
+fetch('/api/sf-cli-available')
+  .then(r => r.json())
+  .then(data => {
+    const btn = document.getElementById('btnSfCli');
+    if (btn && !data.available) {
+      btn.classList.add('disabled');
+      btn.title = 'Screaming Frog não encontrado neste computador';
+      btn.querySelector('.small').textContent = 'SF não instalado neste computador';
+    }
+  }).catch(() => {});
 
+// ── Crawler automático ──────────────────────────────────────
+function runAnalysis(projectId) {
+  setAnalysisRunning();
   fetch('/admin/projetos/' + projectId + '/analisar', { method: 'POST' })
     .then(r => r.json())
     .then(data => {
-      if (data.error) {
-        alert(data.error);
-        btn.disabled = false;
-        btn.innerHTML = '<i class="bi bi-play-circle me-2"></i>Iniciar Nova Análise';
-        document.getElementById('analysisProgress').classList.add('d-none');
-        return;
-      }
+      if (data.error) { resetAnalysisBtn(data.error); return; }
       currentAnalysisId = data.analysis_id;
       startPolling();
     })
+    .catch(() => resetAnalysisBtn('Erro de conexão'));
+}
+
+// ── SF CLI ──────────────────────────────────────────────────
+function runSfCli(projectId) {
+  setAnalysisRunning('Iniciando Screaming Frog CLI...');
+  fetch('/admin/projetos/' + projectId + '/sf-cli', { method: 'POST' })
+    .then(r => r.json())
+    .then(data => {
+      if (data.error) { resetAnalysisBtn(data.error); return; }
+      currentAnalysisId = data.analysis_id;
+      document.getElementById('progressText').textContent =
+        'Screaming Frog está rastreando o site. Isso pode levar alguns minutos...';
+      startPolling();
+    })
+    .catch(() => resetAnalysisBtn('Erro de conexão'));
+}
+
+// ── SF CSV Upload ───────────────────────────────────────────
+function showFileName(input, labelId, zoneId) {
+  const label = document.getElementById(labelId);
+  const zone  = document.getElementById(zoneId);
+  if (input.files.length > 0) {
+    label.textContent = '✓ ' + input.files[0].name;
+    zone.classList.add('upload-zone-done');
+  }
+}
+
+function submitSfUpload(projectId) {
+  const internalInput = document.getElementById('internalCsvInput');
+  const errEl = document.getElementById('sfUploadError');
+  const progEl = document.getElementById('sfUploadProgress');
+  errEl.classList.add('d-none');
+
+  if (!internalInput.files.length) {
+    errEl.textContent = 'Selecione o arquivo "Internal:All" do Screaming Frog.';
+    errEl.classList.remove('d-none');
+    return;
+  }
+
+  progEl.classList.remove('d-none');
+
+  const formData = new FormData(document.getElementById('sfUploadForm'));
+
+  fetch('/admin/projetos/' + projectId + '/importar-sf', {
+    method: 'POST',
+    body: formData
+  })
+    .then(r => r.json())
+    .then(data => {
+      progEl.classList.add('d-none');
+      if (data.error) {
+        errEl.textContent = data.error;
+        errEl.classList.remove('d-none');
+        return;
+      }
+      // Close modal and start polling
+      bootstrap.Modal.getInstance(document.getElementById('sfUploadModal')).hide();
+      currentAnalysisId = data.analysis_id;
+      document.getElementById('analysisProgress').classList.remove('d-none');
+      document.getElementById('progressText').textContent =
+        `${data.pages} páginas importadas. Processando análise...`;
+      startPolling();
+    })
     .catch(() => {
-      btn.disabled = false;
-      btn.innerHTML = '<i class="bi bi-play-circle me-2"></i>Iniciar Nova Análise';
+      progEl.classList.add('d-none');
+      errEl.textContent = 'Erro ao enviar os arquivos. Tente novamente.';
+      errEl.classList.remove('d-none');
     });
+}
+
+// Drag-and-drop on upload zones
+['internalDropZone', 'imagesDropZone'].forEach(zoneId => {
+  const zone = document.getElementById(zoneId);
+  if (!zone) return;
+  zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('upload-zone-drag'); });
+  zone.addEventListener('dragleave', () => zone.classList.remove('upload-zone-drag'));
+  zone.addEventListener('drop', e => {
+    e.preventDefault();
+    zone.classList.remove('upload-zone-drag');
+    const inputId = zoneId === 'internalDropZone' ? 'internalCsvInput' : 'imagesCsvInput';
+    const labelId = zoneId === 'internalDropZone' ? 'internalFileName' : 'imagesFileName';
+    const input = document.getElementById(inputId);
+    input.files = e.dataTransfer.files;
+    showFileName(input, labelId, zoneId);
+  });
+});
+
+// ── Shared helpers ──────────────────────────────────────────
+function setAnalysisRunning(msg) {
+  const btn = document.getElementById('btnRunAnalysis');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>' + (msg || 'Iniciando...');
+  document.getElementById('analysisProgress').classList.remove('d-none');
+}
+
+function resetAnalysisBtn(errMsg) {
+  const btn = document.getElementById('btnRunAnalysis');
+  btn.disabled = false;
+  btn.innerHTML = '<i class="bi bi-robot me-2"></i>Rastrear Automaticamente';
+  document.getElementById('analysisProgress').classList.add('d-none');
+  if (errMsg) alert(errMsg);
 }
 
 function startPolling() {
@@ -320,8 +527,9 @@ function checkStatus() {
     .then(r => r.json())
     .then(data => {
       document.getElementById('progressText').textContent =
-        'Páginas analisadas: ' + (data.total_pages || 0) + ' | Problemas: ' + (data.total_issues || 0);
-
+        'Páginas: ' + (data.total_pages || 0) +
+        ' | Problemas: ' + (data.total_issues || 0) +
+        ' | Status: ' + data.status;
       if (data.status === 'completed' || data.status === 'error') {
         clearInterval(pollInterval);
         location.reload();
