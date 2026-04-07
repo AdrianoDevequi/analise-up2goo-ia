@@ -60,7 +60,8 @@
         </div>
       </div>
       <div class="col-6 col-md-3">
-        {% set total_score = [0, (100 - (latest_analysis.high_issues * 10 + latest_analysis.medium_issues * 5 + latest_analysis.low_issues * 2))] | max %}
+        {% set _p = latest_analysis.total_pages if latest_analysis.total_pages > 0 else 1 %}
+        {% set total_score = [0, (100 - (latest_analysis.high_issues * 10 + latest_analysis.medium_issues * 5 + latest_analysis.low_issues * 2) / _p * 2) | round | int] | max %}
         {% set total_score = [total_score, 100] | min %}
         <div class="client-stat-card text-center p-4">
           <div class="stat-big {% if total_score >= 70 %}text-success{% elif total_score >= 40 %}text-warning{% else %}text-danger{% endif %}">

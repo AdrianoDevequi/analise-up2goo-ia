@@ -243,7 +243,8 @@
               </div>
             </div>
             <!-- Score bar -->
-            {% set score = [0, (100 - ((latest_analysis.high_issues * 10 + latest_analysis.medium_issues * 5 + latest_analysis.low_issues * 2)))] | max %}
+            {% set _pages = latest_analysis.total_pages if latest_analysis.total_pages > 0 else 1 %}
+            {% set score = [0, (100 - (latest_analysis.high_issues * 10 + latest_analysis.medium_issues * 5 + latest_analysis.low_issues * 2) / _pages * 2) | round | int] | max %}
             {% set score = [score, 100] | min %}
             <div class="d-flex justify-content-between align-items-center mb-1">
               <small class="text-muted fw-semibold">Score SEO</small>
@@ -639,19 +640,26 @@ function checkStatus() {
       const issues = data.total_issues || 0;
       const expected = data.pages_expected || 0;
 
-      if (pages > 0) {
+      if (pages === 0 && expected > 0) {
+        // Sitemap carregado, aguardando 1ª página
         document.getElementById('progressText').textContent =
-          pages === 1 ? 'Analisando página 1...' : `${pages} páginas analisadas`;
-        document.getElementById('progressCount').textContent =
-          issues > 0 ? `${issues} problema${issues !== 1 ? 's' : ''} encontrado${issues !== 1 ? 's' : ''}` : '';
+          `Analisando... ${expected} página${expected !== 1 ? 's' : ''} na fila`;
+      } else if (pages === 0) {
+        document.getElementById('progressText').textContent = 'Rastreando o site...';
+      } else {
+        document.getElementById('progressText').textContent =
+          `${pages} página${pages !== 1 ? 's' : ''} analisada${pages !== 1 ? 's' : ''}`;
 
         if (expected > 0) {
-          const pct = Math.min(Math.round((pages / expected) * 100), 95);
+          const pct = Math.min(Math.round((pages / expected) * 100), 97);
           const bar = document.getElementById('progressBar');
           bar.style.width = pct + '%';
           bar.classList.remove('progress-bar-animated');
           document.getElementById('progressCount').textContent =
-            `${pages}/${expected} páginas` + (issues > 0 ? ` · ${issues} problemas` : '');
+            `${pages}/${expected}` + (issues > 0 ? ` · ${issues} problemas` : '');
+        } else {
+          document.getElementById('progressCount').textContent =
+            issues > 0 ? `${issues} problema${issues !== 1 ? 's' : ''}` : '';
         }
       }
 

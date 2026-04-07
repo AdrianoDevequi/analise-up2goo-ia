@@ -271,52 +271,20 @@ def run_analysis_background(analysis_id, project_url, sitemap_url=None, use_play
 
                 fetch_fn = fetch_page_playwright if use_playwright else fetch_page
 
-                if sitemap_url:
-                    print(f'[ANALYSIS] Usando sitemap: {sitemap_url}')
-                    try:
-                        sitemap_urls = get_sitemap_urls(sitemap_url, max_urls=100)
-                        print(f'[ANALYSIS] {len(sitemap_urls)} URLs encontradas no sitemap')
-                    except Exception as e:
-                        print(f'[ANALYSIS] Falha ao ler sitemap, fazendo crawl normal: {e}')
-                        sitemap_urls = None
-
-                    if sitemap_urls:
-                        url_list = sitemap_urls[:50]
-                        cur.execute('UPDATE analyses SET pages_expected=%s WHERE id=%s',
-                                    (len(url_list), analysis_id))
-                        conn.commit()
-                        pages = []
-                        for url in url_list:
-                            try:
-                                page_data = fetch_fn(url)
-                                if page_data:
-                                    pages.append(page_data)
-                            except Exception as e:
-                                print(f'[ANALYSIS] Erro ao buscar {url}: {e}')
-                    else:
-                        pages = crawl_website(project_url, max_pages=50)
-                        cur.execute('UPDATE analyses SET pages_expected=%s WHERE id=%s',
-                                    (len(pages), analysis_id))
-                        conn.commit()
-                else:
-                    pages = crawl_website(project_url, max_pages=30)
-                    cur.execute('UPDATE analyses SET pages_expected=%s WHERE id=%s',
-                                (len(pages), analysis_id))
-                    conn.commit()
-
                 total_issues = 0
                 high_issues = 0
                 medium_issues = 0
                 low_issues = 0
                 pages_done = 0
-
                 has_api_key = bool(os.environ.get('GEMINI_API_KEY', '').strip())
                 import json as _json
 
-                for page_data in pages:
+                def _process_page(page_data):
+                    """Analyze, save, and update progress for one page. Returns False if cancelled."""
+                    nonlocal total_issues, high_issues, medium_issues, low_issues, pages_done
+
                     issues, word_count = analyze_page(page_data)
 
-                    # AI suggestions (only first 10 pages to control API usage)
                     ai_data = None
                     if has_api_key and pages_done < 10:
                         ai_data = get_ai_suggestions(page_data)
@@ -324,68 +292,98 @@ def run_analysis_background(analysis_id, project_url, sitemap_url=None, use_play
                     cur.execute(
                         '''INSERT INTO pages (analysis_id, url, title, status_code, word_count, load_time, issue_count)
                            VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id''',
-                        (
-                            analysis_id,
-                            page_data['url'],
-                            page_data.get('title', ''),
-                            page_data.get('status_code', 0),
-                            word_count,
-                            page_data.get('load_time', 0),
-                            len(issues)
-                        )
+                        (analysis_id, page_data['url'], page_data.get('title', ''),
+                         page_data.get('status_code', 0), word_count,
+                         page_data.get('load_time', 0), len(issues))
                     )
                     page_id = cur.fetchone()['id']
 
                     for issue in issues:
-                        ai_suggestion_json = _json.dumps(ai_data, ensure_ascii=False) if ai_data else None
+                        ai_json = _json.dumps(ai_data, ensure_ascii=False) if ai_data else None
                         cur.execute(
-                            '''INSERT INTO issues (page_id, category, severity, title, description, current_value, suggestion, ai_suggestion)
+                            '''INSERT INTO issues (page_id, category, severity, title,
+                                                   description, current_value, suggestion, ai_suggestion)
                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)''',
-                            (
-                                page_id,
-                                issue['category'],
-                                issue['severity'],
-                                issue['title'],
-                                issue.get('description', ''),
-                                issue.get('current_value', ''),
-                                issue.get('suggestion', ''),
-                                ai_suggestion_json
-                            )
+                            (page_id, issue['category'], issue['severity'], issue['title'],
+                             issue.get('description', ''), issue.get('current_value', ''),
+                             issue.get('suggestion', ''), ai_json)
                         )
                         total_issues += 1
-                        if issue['severity'] == 'high':
-                            high_issues += 1
-                        elif issue['severity'] == 'medium':
-                            medium_issues += 1
-                        else:
-                            low_issues += 1
+                        if issue['severity'] == 'high':     high_issues += 1
+                        elif issue['severity'] == 'medium': medium_issues += 1
+                        else:                               low_issues += 1
 
                     pages_done += 1
-                    # Update live progress after each page
-                    cur.execute(
-                        'UPDATE analyses SET total_pages=%s, total_issues=%s WHERE id=%s',
-                        (pages_done, total_issues, analysis_id)
-                    )
+                    cur.execute('UPDATE analyses SET total_pages=%s, total_issues=%s WHERE id=%s',
+                                (pages_done, total_issues, analysis_id))
                     conn.commit()
 
-                    # Check if a stop was requested
                     if analysis_id in _cancel_set:
                         _cancel_set.discard(analysis_id)
-                        print(f'[ANALYSIS] Interrompida pelo usuário após {pages_done} páginas.')
+                        print(f'[ANALYSIS] Interrompida após {pages_done} páginas.')
                         cur.execute(
                             '''UPDATE analyses SET status=%s, completed_at=%s,
                                    total_pages=%s, total_issues=%s,
                                    high_issues=%s, medium_issues=%s, low_issues=%s,
-                                   error_message=%s
-                               WHERE id=%s''',
-                            ('stopped', datetime.now(),
-                             pages_done, total_issues,
+                                   error_message=%s WHERE id=%s''',
+                            ('stopped', datetime.now(), pages_done, total_issues,
                              high_issues, medium_issues, low_issues,
-                             f'Interrompida manualmente após {pages_done} páginas.',
-                             analysis_id)
+                             f'Interrompida manualmente após {pages_done} páginas.', analysis_id)
+                        )
+                        conn.commit()
+                        return False
+                    return True
+
+                # ── Modo sitemap: busca + analisa cada URL imediatamente ──
+                if sitemap_url:
+                    print(f'[ANALYSIS] Usando sitemap: {sitemap_url}')
+                    try:
+                        sitemap_urls = get_sitemap_urls(sitemap_url, max_urls=100)
+                        print(f'[ANALYSIS] {len(sitemap_urls)} URLs no sitemap')
+                    except Exception as e:
+                        print(f'[ANALYSIS] Falha no sitemap, crawl normal: {e}')
+                        sitemap_urls = None
+
+                    if sitemap_urls:
+                        url_list = sitemap_urls[:50]
+                        cur.execute('UPDATE analyses SET pages_expected=%s WHERE id=%s',
+                                    (len(url_list), analysis_id))
+                        conn.commit()
+
+                        for url in url_list:
+                            try:
+                                page_data = fetch_fn(url)
+                                if not page_data:
+                                    continue
+                            except Exception as e:
+                                print(f'[ANALYSIS] Erro ao buscar {url}: {e}')
+                                continue
+                            if not _process_page(page_data):
+                                return  # cancelled
+                        # final update and return early
+                        cur.execute(
+                            '''UPDATE analyses SET status=%s, completed_at=%s,
+                                   total_pages=%s, total_issues=%s,
+                                   high_issues=%s, medium_issues=%s, low_issues=%s WHERE id=%s''',
+                            ('completed', datetime.now(), pages_done, total_issues,
+                             high_issues, medium_issues, low_issues, analysis_id)
                         )
                         conn.commit()
                         return
+
+                    # Sitemap falhou — fallback para crawl
+                    pages = crawl_website(project_url, max_pages=50)
+                else:
+                    pages = crawl_website(project_url, max_pages=30)
+
+                # ── Modo crawl: processa lista retornada pelo crawler ──
+                cur.execute('UPDATE analyses SET pages_expected=%s WHERE id=%s',
+                            (len(pages), analysis_id))
+                conn.commit()
+
+                for page_data in pages:
+                    if not _process_page(page_data):
+                        return  # cancelled
 
                 cur.execute(
                     '''UPDATE analyses SET
