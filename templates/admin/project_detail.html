@@ -176,10 +176,26 @@
             <form method="POST" action="{{ url_for('admin_update_sitemap', project_id=project.id) }}">
               <div class="mb-3">
                 <label class="small text-muted fw-semibold d-block mb-1">URL DO SITEMAP</label>
-                <input type="text" name="sitemap_url" class="form-control form-control-sm"
+                <input type="text" name="sitemap_url" id="sitemapUrlInput" class="form-control form-control-sm"
                        value="{{ project.sitemap_url or '' }}"
                        placeholder="https://site.com.br/sitemap.xml">
                 <div class="form-text">O rastreio usará apenas as páginas do sitemap.</div>
+                <div id="sitemapCount" class="mt-2" style="display:none">
+                  <span class="badge bg-primary-subtle text-primary">
+                    <i class="bi bi-list-ol me-1"></i>
+                    <span id="sitemapCountValue"></span> páginas encontradas no sitemap
+                  </span>
+                </div>
+                <div id="sitemapLoading" class="mt-2" style="display:none">
+                  <span class="spinner-border spinner-border-sm text-muted me-1"></span>
+                  <small class="text-muted">Contando páginas do sitemap...</small>
+                </div>
+                <div id="sitemapError" class="mt-2" style="display:none">
+                  <span class="badge bg-danger-subtle text-danger">
+                    <i class="bi bi-exclamation-triangle me-1"></i>
+                    <span id="sitemapErrorMsg"></span>
+                  </span>
+                </div>
               </div>
               <hr class="my-3">
               <div class="mb-3">
@@ -844,5 +860,54 @@ function copyText(text) {
 }
 </script>
 <script>if('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js', {scope: '/'});</script>
+<script>
+(function() {
+  const input = document.getElementById('sitemapUrlInput');
+  if (!input) return;
+
+  const countEl = document.getElementById('sitemapCount');
+  const countVal = document.getElementById('sitemapCountValue');
+  const loadingEl = document.getElementById('sitemapLoading');
+  const errorEl = document.getElementById('sitemapError');
+  const errorMsg = document.getElementById('sitemapErrorMsg');
+
+  function checkSitemap(url) {
+    countEl.style.display = 'none';
+    errorEl.style.display = 'none';
+    if (!url || !url.match(/^https?:\/\/.+/)) {
+      loadingEl.style.display = 'none';
+      return;
+    }
+    loadingEl.style.display = 'block';
+    fetch('/api/sitemap-count?url=' + encodeURIComponent(url))
+      .then(r => r.json())
+      .then(data => {
+        loadingEl.style.display = 'none';
+        if (data.error) {
+          errorMsg.textContent = data.error;
+          errorEl.style.display = 'block';
+        } else {
+          countVal.textContent = data.count;
+          countEl.style.display = 'block';
+        }
+      })
+      .catch(() => {
+        loadingEl.style.display = 'none';
+        errorMsg.textContent = 'Erro ao consultar sitemap';
+        errorEl.style.display = 'block';
+      });
+  }
+
+  // Check on page load if sitemap is configured
+  if (input.value.trim()) checkSitemap(input.value.trim());
+
+  // Check on blur (when user changes the URL)
+  let debounce;
+  input.addEventListener('input', function() {
+    clearTimeout(debounce);
+    debounce = setTimeout(() => checkSitemap(this.value.trim()), 800);
+  });
+})();
+</script>
 </body>
 </html>

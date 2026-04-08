@@ -1006,6 +1006,20 @@ def admin_update_sitemap(project_id):
     return redirect(url_for('admin_project_detail', project_id=project_id))
 
 
+@app.route('/api/sitemap-count')
+@admin_required
+def api_sitemap_count():
+    """Return the number of URLs found in a sitemap."""
+    url = request.args.get('url', '').strip()
+    if not url:
+        return jsonify({'error': 'URL não informada'}), 400
+    try:
+        urls = get_sitemap_urls(url, max_urls=5000)
+        return jsonify({'count': len(urls)})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+
+
 @app.route('/admin/projetos/<int:project_id>/analisar', methods=['POST'])
 @admin_required
 def admin_run_analysis(project_id):
