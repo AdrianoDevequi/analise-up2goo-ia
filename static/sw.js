@@ -1,4 +1,4 @@
-const CACHE_NAME = 'analise-seo-v1';
+const CACHE_NAME = 'up2goo-seo-v2';
 const STATIC_ASSETS = [
   '/static/css/style.css',
   '/static/js/main.js',

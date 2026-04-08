@@ -1693,6 +1693,19 @@ Use português brasileiro. Seja específico ao tema da página."""
 
 
 # ---------------------------------------------------------------------------
+# PWA: serve service worker from root scope
+# ---------------------------------------------------------------------------
+
+@app.route('/sw.js')
+def service_worker():
+    return app.send_static_file('sw.js'), 200, {
+        'Content-Type': 'application/javascript',
+        'Service-Worker-Allowed': '/',
+        'Cache-Control': 'no-cache',
+    }
+
+
+# ---------------------------------------------------------------------------
 # Run
 # ---------------------------------------------------------------------------
 
