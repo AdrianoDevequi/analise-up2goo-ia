@@ -217,16 +217,29 @@ def init_db():
                 print(f'[INIT] Admin criado: {admin_email} / {admin_password}')
 
             # Mark any stale running/pending analyses as stopped (server restarted)
+            # First, recalculate issue counts from actual saved data so partial
+            # results are accurately reflected (not left at zero).
             cur.execute(
-                """UPDATE analyses SET status='stopped', completed_at=%s,
-                   error_message='Interrompido por reinicialização do servidor'
-                   WHERE status IN ('running', 'pending')""",
-                (datetime.now(),)
+                "SELECT id FROM analyses WHERE status IN ('running', 'pending')"
             )
-            affected = cur.rowcount
+            stale_ids = [r['id'] for r in cur.fetchall()]
+            for aid in stale_ids:
+                cur.execute(
+                    """UPDATE analyses SET
+                           status='stopped',
+                           completed_at=%s,
+                           error_message='Interrompido por reinicialização do servidor',
+                           total_pages = COALESCE((SELECT COUNT(*) FROM pages WHERE analysis_id=%s), 0),
+                           total_issues = COALESCE((SELECT COUNT(*) FROM issues i JOIN pages p ON i.page_id=p.id WHERE p.analysis_id=%s), 0),
+                           high_issues  = COALESCE((SELECT COUNT(*) FROM issues i JOIN pages p ON i.page_id=p.id WHERE p.analysis_id=%s AND i.severity='high'), 0),
+                           medium_issues= COALESCE((SELECT COUNT(*) FROM issues i JOIN pages p ON i.page_id=p.id WHERE p.analysis_id=%s AND i.severity='medium'), 0),
+                           low_issues   = COALESCE((SELECT COUNT(*) FROM issues i JOIN pages p ON i.page_id=p.id WHERE p.analysis_id=%s AND i.severity='low'), 0)
+                       WHERE id=%s""",
+                    (datetime.now(), aid, aid, aid, aid, aid, aid)
+                )
             conn.commit()
-            if affected:
-                print(f'[INIT] {affected} análise(s) interrompida(s) por reinicialização.')
+            if stale_ids:
+                print(f'[INIT] {len(stale_ids)} análise(s) interrompida(s) por reinicialização (contagens recalculadas).')
 
 
 # ---------------------------------------------------------------------------
@@ -401,8 +414,11 @@ def run_analysis_background(analysis_id, project_url, project_id=None, sitemap_u
 
         def _update_progress():
             """Update analysis progress in DB."""
-            _db_exec('UPDATE analyses SET total_pages=%s, total_issues=%s WHERE id=%s',
-                     (pages_done, total_issues, analysis_id), commit=True)
+            _db_exec(
+                '''UPDATE analyses SET total_pages=%s, total_issues=%s,
+                       high_issues=%s, medium_issues=%s, low_issues=%s WHERE id=%s''',
+                (pages_done, total_issues, high_issues, medium_issues, low_issues, analysis_id),
+                commit=True)
 
         def _process_page(page_data):
             """Analyze, save, and update progress for one page. Returns False if cancelled."""
