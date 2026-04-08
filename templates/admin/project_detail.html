@@ -330,13 +330,62 @@
     {% if pages_data %}
     <div class="card shadow-sm border-0 mt-4">
       <div class="card-header bg-white border-bottom py-3">
-        <h6 class="mb-0 fw-semibold">
-          <i class="bi bi-file-earmark-text me-2 text-primary"></i>
-          Páginas Analisadas ({{ pages_data | length }})
-        </h6>
+        <div class="d-flex justify-content-between align-items-center">
+          <h6 class="mb-0 fw-semibold">
+            <i class="bi bi-file-earmark-text me-2 text-primary"></i>
+            Páginas Analisadas ({{ pages_data | length }})
+          </h6>
+          <div class="d-md-none" style="width:55%">
+            <input type="text" id="pageSearch" class="form-control form-control-sm"
+                   placeholder="Buscar URL ou título..." oninput="filterPages()">
+          </div>
+        </div>
       </div>
       <div class="card-body p-0">
-        <div class="table-responsive">
+
+        <!-- Mobile: cards compactos -->
+        <div class="d-md-none p-2" id="mobilePagesList">
+          {% for page in pages_data %}
+          <div class="page-card-mobile {% if loop.index > 20 %}d-none{% endif %}"
+               data-search="{{ page.url|lower }} {{ (page.title or '')|lower }}"
+               onclick="loadPageIssues({{ display_analysis.id }}, {{ page.id }}, '{{ page.url | replace("'", "\\'") }}')"
+               style="cursor:pointer">
+            <div class="d-flex align-items-start gap-2 p-2 rounded mb-1 {% if page.total_issue_count >= 5 %}bg-danger-subtle{% elif page.total_issue_count >= 1 %}bg-warning-subtle{% else %}bg-success-subtle{% endif %}" style="border-left: 3px solid {% if page.total_issue_count >= 5 %}var(--bs-danger){% elif page.total_issue_count >= 1 %}var(--bs-warning){% else %}var(--bs-success){% endif %}">
+              <div class="flex-grow-1 min-w-0">
+                <div class="small fw-semibold text-truncate">{{ page.title or '(sem título)' }}</div>
+                <div class="text-muted text-truncate" style="font-size:11px">{{ page.url | replace('https://www.', '') | replace('https://', '') | replace('http://', '') }}</div>
+              </div>
+              <div class="d-flex flex-column align-items-end flex-shrink-0">
+                {% if page.total_issue_count > 0 %}
+                <span class="badge {% if page.total_issue_count >= 5 %}bg-danger{% elif page.total_issue_count >= 3 %}bg-warning text-dark{% else %}bg-secondary{% endif %}" style="font-size:11px">
+                  {{ page.total_issue_count }}
+                </span>
+                {% else %}
+                <span class="badge bg-success" style="font-size:11px"><i class="bi bi-check-lg"></i></span>
+                {% endif %}
+                {% if page.status_code and page.status_code != 200 %}
+                <span class="text-danger" style="font-size:10px">{{ page.status_code }}</span>
+                {% endif %}
+              </div>
+            </div>
+          </div>
+          {% endfor %}
+
+          {% if pages_data | length > 20 %}
+          <div class="text-center py-2" id="showMoreBtn">
+            <button class="btn btn-sm btn-outline-primary w-100" onclick="showAllPages()">
+              <i class="bi bi-chevron-down me-1"></i>Mostrar todas ({{ pages_data | length - 20 }} restantes)
+            </button>
+          </div>
+          {% endif %}
+
+          <div class="text-center py-3 text-muted small d-none" id="noResultsMsg">
+            <i class="bi bi-search me-1"></i>Nenhuma página encontrada
+          </div>
+        </div>
+
+        <!-- Desktop: tabela completa -->
+        <div class="table-responsive d-none d-md-block">
           <table class="table table-hover align-middle mb-0">
             <thead class="table-light">
               <tr>
@@ -393,6 +442,7 @@
             </tbody>
           </table>
         </div>
+
       </div>
     </div>
     {% endif %}
@@ -857,6 +907,39 @@ function copyText(text) {
     event.target.closest('button').after(tooltip);
     setTimeout(() => tooltip.remove(), 2000);
   });
+}
+
+function showAllPages() {
+  document.querySelectorAll('.page-card-mobile.d-none').forEach(el => el.classList.remove('d-none'));
+  const btn = document.getElementById('showMoreBtn');
+  if (btn) btn.remove();
+}
+
+function filterPages() {
+  const q = document.getElementById('pageSearch').value.toLowerCase().trim();
+  const cards = document.querySelectorAll('.page-card-mobile');
+  const noResults = document.getElementById('noResultsMsg');
+  const showMore = document.getElementById('showMoreBtn');
+  let visible = 0;
+
+  if (q.length > 0) {
+    // When searching, show all matching (ignore 20 limit)
+    if (showMore) showMore.style.display = 'none';
+    cards.forEach(card => {
+      const match = card.dataset.search.includes(q);
+      card.classList.toggle('d-none', !match);
+      if (match) visible++;
+    });
+  } else {
+    // Reset: show first 20, hide rest
+    cards.forEach((card, i) => {
+      card.classList.toggle('d-none', i >= 20);
+      if (i < 20) visible++;
+    });
+    if (showMore) showMore.style.display = '';
+  }
+
+  noResults.classList.toggle('d-none', visible > 0);
 }
 </script>
 <script>if('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js', {scope: '/'});</script>
