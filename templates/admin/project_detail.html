@@ -218,6 +218,19 @@
                 </div>
                 {% endif %}
               </div>
+              <hr class="my-3">
+              <div class="mb-3">
+                <label class="small text-muted fw-semibold d-block mb-1">
+                  <i class="bi bi-funnel me-1"></i>EXCLUIR URLs DO RASTREIO
+                </label>
+                <textarea name="exclude_patterns" class="form-control form-control-sm" rows="3"
+                          placeholder="/tag/&#10;/author/&#10;/page/"
+                          style="font-size:12px">{{ project.exclude_patterns or '' }}</textarea>
+                <div class="form-text">
+                  Uma regra por linha. URLs que contenham o texto serão ignoradas.<br>
+                  Ex: <code>/tag/</code> exclui todas as páginas de tag.
+                </div>
+              </div>
               <button type="submit" class="btn btn-sm btn-outline-success w-100">
                 <i class="bi bi-check2 me-1"></i>Salvar Configurações
               </button>

@@ -198,6 +198,12 @@ def init_db():
                     ) THEN
                         ALTER TABLE analyses ADD COLUMN pages_expected INTEGER DEFAULT 0;
                     END IF;
+                    IF NOT EXISTS (
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_name='projects' AND column_name='exclude_patterns'
+                    ) THEN
+                        ALTER TABLE projects ADD COLUMN exclude_patterns TEXT DEFAULT '';
+                    END IF;
                 END $$;
             """)
             conn.commit()
@@ -380,9 +386,23 @@ def _db_copy_cached_page(analysis_id, url, cached):
         conn.close()
 
 
-def run_analysis_background(analysis_id, project_url, project_id=None, sitemap_url=None, use_playwright=False):
+def _url_excluded(url, patterns):
+    """Check if a URL matches any exclusion pattern (substring match)."""
+    if not patterns:
+        return False
+    url_lower = url.lower()
+    for pattern in patterns:
+        if pattern and pattern in url_lower:
+            return True
+    return False
+
+
+def run_analysis_background(analysis_id, project_url, project_id=None, sitemap_url=None, use_playwright=False, exclude_patterns=''):
     """Runs the full crawl + SEO analysis in a background thread."""
     from crawler import fetch_page, fetch_page_playwright
+
+    # Parse exclude patterns (one per line, case-insensitive)
+    excl = [p.strip().lower() for p in exclude_patterns.splitlines() if p.strip()] if exclude_patterns else []
 
     total_issues = 0
     high_issues = 0
@@ -489,7 +509,9 @@ def run_analysis_background(analysis_id, project_url, project_id=None, sitemap_u
                 sitemap_urls = None
 
             if sitemap_urls:
-                url_list = sitemap_urls
+                url_list = [u for u in sitemap_urls if not _url_excluded(u, excl)]
+                if len(url_list) < len(sitemap_urls):
+                    print(f'[ANALYSIS] {len(sitemap_urls) - len(url_list)} URLs excluídas por filtro')
                 _db_exec('UPDATE analyses SET pages_expected=%s WHERE id=%s',
                          (len(url_list), analysis_id), commit=True)
 
@@ -561,6 +583,11 @@ def run_analysis_background(analysis_id, project_url, project_id=None, sitemap_u
             pages = crawl_website(project_url, max_pages=30)
 
         # ── Modo crawl: processa lista retornada pelo crawler ──
+        if excl:
+            before = len(pages)
+            pages = [p for p in pages if not _url_excluded(p['url'], excl)]
+            if len(pages) < before:
+                print(f'[ANALYSIS] {before - len(pages)} URLs excluídas por filtro')
         _db_exec('UPDATE analyses SET pages_expected=%s WHERE id=%s',
                  (len(pages), analysis_id), commit=True)
 
@@ -1026,14 +1053,15 @@ def admin_project_detail(project_id):
 @app.route('/admin/projetos/<int:project_id>/atualizar-sitemap', methods=['POST'])
 @admin_required
 def admin_update_sitemap(project_id):
-    """Update crawler settings (sitemap_url + use_playwright) for an existing project."""
+    """Update crawler settings (sitemap_url + use_playwright + exclude_patterns) for an existing project."""
     sitemap_url = request.form.get('sitemap_url', '').strip() or None
     use_playwright = request.form.get('use_playwright') == 'on'
+    exclude_patterns = request.form.get('exclude_patterns', '').strip()
     db = get_db()
     with db.cursor() as cur:
         cur.execute(
-            'UPDATE projects SET sitemap_url=%s, use_playwright=%s WHERE id=%s',
-            (sitemap_url, use_playwright, project_id)
+            'UPDATE projects SET sitemap_url=%s, use_playwright=%s, exclude_patterns=%s WHERE id=%s',
+            (sitemap_url, use_playwright, exclude_patterns, project_id)
         )
         db.commit()
     flash('Configurações do rastreio salvas.', 'success')
@@ -1089,6 +1117,7 @@ def admin_run_analysis(project_id):
             'project_id': project_id,
             'sitemap_url': project.get('sitemap_url') or None,
             'use_playwright': bool(project.get('use_playwright')),
+            'exclude_patterns': project.get('exclude_patterns') or '',
         },
         daemon=True
     )
