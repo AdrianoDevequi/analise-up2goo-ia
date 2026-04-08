@@ -459,7 +459,7 @@ def run_analysis_background(analysis_id, project_url, project_id=None, sitemap_u
             _db_exec('UPDATE analyses SET pages_expected=%s WHERE id=%s',
                      (-1, analysis_id), commit=True)
             try:
-                sitemap_urls = get_sitemap_urls(sitemap_url, max_urls=500)
+                sitemap_urls = get_sitemap_urls(sitemap_url, max_urls=5000)
                 print(f'[ANALYSIS] {len(sitemap_urls)} URLs no sitemap')
             except Exception as e:
                 print(f'[ANALYSIS] Falha no sitemap, crawl normal: {e}')
