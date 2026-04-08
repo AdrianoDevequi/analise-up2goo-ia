@@ -221,27 +221,14 @@
               <hr class="my-3">
               <div class="mb-3">
                 <label class="small text-muted fw-semibold d-block mb-1">
-                  <i class="bi bi-funnel me-1"></i>EXCLUIR URLs DO RASTREIO
+                  <i class="bi bi-funnel me-1"></i>EXCLUIR URLs EXTRAS
                 </label>
-                <textarea name="exclude_patterns" id="excludePatterns" class="form-control form-control-sm" rows="4"
-                          placeholder="/customer/&#10;/checkout/&#10;?p=&#10;?product_list_order="
+                <textarea name="exclude_patterns" id="excludePatterns" class="form-control form-control-sm" rows="3"
+                          placeholder="/categoria-especifica/&#10;/landing-page/"
                           style="font-size:12px">{{ project.exclude_patterns or '' }}</textarea>
                 <div class="form-text">
-                  Uma regra por linha. URLs que contenham o texto serão ignoradas.
-                </div>
-                <div class="mt-2 d-flex gap-2 flex-wrap">
-                  <button type="button" class="btn btn-outline-secondary btn-sm" style="font-size:11px"
-                          onclick="loadPreset('magento')">
-                    <i class="bi bi-box me-1"></i>Magento
-                  </button>
-                  <button type="button" class="btn btn-outline-secondary btn-sm" style="font-size:11px"
-                          onclick="loadPreset('wordpress')">
-                    <i class="bi bi-wordpress me-1"></i>WordPress
-                  </button>
-                  <button type="button" class="btn btn-outline-secondary btn-sm" style="font-size:11px"
-                          onclick="loadPreset('geral')">
-                    <i class="bi bi-globe me-1"></i>Geral
-                  </button>
+                  URLs de checkout, conta, filtros, paginação, tracking e APIs já são excluídas automaticamente.
+                  Use este campo apenas para regras adicionais específicas do projeto (uma por linha).
                 </div>
               </div>
               <button type="submit" class="btn btn-sm btn-outline-success w-100">
@@ -976,41 +963,6 @@ function copyText(text) {
     event.target.closest('button').after(tooltip);
     setTimeout(() => tooltip.remove(), 2000);
   });
-}
-
-const PRESETS = {
-  magento: [
-    '/customer/', '/checkout/', '/catalogsearch/', '/wishlist/',
-    '/review/product/', '/sendfriend/', '/newsletter/', '/catalog/product_compare/',
-    '/multishipping/', '/paypal/', '/persistent/',
-    '?p=', '?product_list_order=', '?product_list_dir=', '?product_list_mode=',
-    '?product_list_limit=', '?price=', '?cat=',
-    '?SID=', '?___store=', '?___from_store=',
-    '/rest/', '/graphql', '/pub/', '/ajax/',
-    '?utm_', '?gclid=', '?fbclid='
-  ],
-  wordpress: [
-    '/tag/', '/author/', '?p=', '/page/',
-    '/wp-admin/', '/wp-login', '/wp-json/',
-    '/feed/', '/trackback/', '/xmlrpc',
-    '?replytocom=', '?share=', '?preview=',
-    '?utm_', '?gclid=', '?fbclid='
-  ],
-  geral: [
-    '?utm_', '?gclid=', '?fbclid=',
-    '?p=', '?page=', '?sort=', '?order=', '?filter=',
-    '/search', '/login', '/register', '/cart', '/account',
-    '/api/', '/admin/'
-  ]
-};
-
-function loadPreset(name) {
-  const ta = document.getElementById('excludePatterns');
-  const existing = ta.value.trim();
-  const lines = PRESETS[name] || [];
-  const newLines = lines.filter(l => !existing.includes(l));
-  if (newLines.length === 0) return;
-  ta.value = existing ? existing + '\n' + newLines.join('\n') : newLines.join('\n');
 }
 
 function showAllPages() {

@@ -386,11 +386,34 @@ def _db_copy_cached_page(analysis_id, url, cached):
         conn.close()
 
 
+# URLs that are never useful for SEO analysis (common across all platforms)
+_DEFAULT_EXCLUDE = [
+    # Magento
+    '/customer/', '/checkout/', '/catalogsearch/', '/wishlist/',
+    '/review/product/', '/sendfriend/', '/newsletter/', '/catalog/product_compare/',
+    '/multishipping/', '/paypal/', '/persistent/',
+    '?p=', '?product_list_order=', '?product_list_dir=', '?product_list_mode=',
+    '?product_list_limit=', '?price=', '?cat=',
+    '?sid=', '?___store=', '?___from_store=',
+    '/rest/', '/graphql', '/pub/static/', '/ajax/',
+    # WordPress
+    '/tag/', '/author/', '/wp-admin/', '/wp-login', '/wp-json/',
+    '/feed/', '/trackback/', '/xmlrpc',
+    '?replytocom=', '?share=', '?preview=',
+    # General
+    '?utm_', '?gclid=', '?fbclid=',
+    '?sort=', '?order=', '?filter=', '?dir=', '?limit=', '?mode=',
+    '/search', '/login', '/register', '/cart', '/account/',
+    '/api/', '/admin/',
+]
+
+
 def _url_excluded(url, patterns):
     """Check if a URL matches any exclusion pattern (substring match)."""
-    if not patterns:
-        return False
     url_lower = url.lower()
+    for pattern in _DEFAULT_EXCLUDE:
+        if pattern in url_lower:
+            return True
     for pattern in patterns:
         if pattern and pattern in url_lower:
             return True
