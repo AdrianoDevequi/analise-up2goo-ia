@@ -3,13 +3,13 @@
   "short_name": "Up2Goo SEO",
   "description": "Sistema de análise SEO com inteligência artificial - Up2Goo",
   "start_url": "/",
+  "id": "/",
   "display": "standalone",
   "background_color": "#0f172a",
   "theme_color": "#1e40af",
   "orientation": "any",
   "scope": "/",
   "lang": "pt-BR",
-  "categories": ["business", "productivity"],
   "icons": [
     {
       "src": "/static/icons/icon-144.png",
@@ -41,7 +41,5 @@
       "type": "image/png",
       "purpose": "maskable"
     }
-  ],
-  "screenshots": [],
-  "prefer_related_applications": false
+  ]
 }

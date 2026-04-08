@@ -1,18 +1,20 @@
-const CACHE_NAME = 'up2goo-seo-v2';
+const CACHE_NAME = 'up2goo-seo-v3';
 const STATIC_ASSETS = [
   '/static/css/style.css',
   '/static/js/main.js',
-  '/static/manifest.json',
   '/static/icons/icon-192.png',
-  '/static/icons/icon-512.png',
-  'https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css',
-  'https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css',
-  'https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js'
+  '/static/icons/icon-512.png'
 ];
 
 self.addEventListener('install', event => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then(cache => cache.addAll(STATIC_ASSETS))
+    caches.open(CACHE_NAME).then(cache =>
+      Promise.allSettled(
+        STATIC_ASSETS.map(url =>
+          cache.add(url).catch(err => console.warn('[SW] Cache skip:', url, err))
+        )
+      )
+    )
   );
   self.skipWaiting();
 });
@@ -29,7 +31,7 @@ self.addEventListener('activate', event => {
 self.addEventListener('fetch', event => {
   const { request } = event;
 
-  // Network-first for API/HTML requests
+  // Network-first for navigation and API requests
   if (request.mode === 'navigate' || request.url.includes('/api/')) {
     event.respondWith(
       fetch(request)

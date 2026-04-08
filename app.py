@@ -1712,11 +1712,16 @@ Use português brasileiro. Seja específico ao tema da página."""
 
 @app.route('/sw.js')
 def service_worker():
-    return app.send_static_file('sw.js'), 200, {
-        'Content-Type': 'application/javascript',
-        'Service-Worker-Allowed': '/',
-        'Cache-Control': 'no-cache',
-    }
+    response = app.send_static_file('sw.js')
+    response.headers['Content-Type'] = 'application/javascript'
+    response.headers['Service-Worker-Allowed'] = '/'
+    response.headers['Cache-Control'] = 'no-cache'
+    return response
+
+
+@app.route('/manifest.json')
+def manifest():
+    return app.send_static_file('manifest.json')
 
 
 # ---------------------------------------------------------------------------
