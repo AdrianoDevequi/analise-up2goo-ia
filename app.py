@@ -17,7 +17,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from dotenv import load_dotenv
 
 from crawler import crawl_website
-from analyzer import analyze_page, get_ai_suggestions
+from analyzer import analyze_page, analyze_footer, get_ai_suggestions
 from sf_importer import process_sf_csv, crawl_with_sf_cli, sf_cli_available
 from sitemap_parser import get_sitemap_urls, guess_sitemap_url
 
@@ -390,6 +390,7 @@ def run_analysis_background(analysis_id, project_url, project_id=None, sitemap_u
     low_issues = 0
     pages_done = 0
     consecutive_errors = 0
+    footer_analyzed = False
 
     try:
         _db_exec('UPDATE analyses SET status=%s, started_at=%s WHERE id=%s',
@@ -422,9 +423,31 @@ def run_analysis_background(analysis_id, project_url, project_id=None, sitemap_u
 
         def _process_page(page_data):
             """Analyze, save, and update progress for one page. Returns False if cancelled."""
-            nonlocal total_issues, high_issues, medium_issues, low_issues, pages_done, consecutive_errors
+            nonlocal total_issues, high_issues, medium_issues, low_issues, pages_done, consecutive_errors, footer_analyzed
 
             try:
+                # Analyze footer once (from first page that has it)
+                if not footer_analyzed and page_data.get('footer_html'):
+                    footer_analyzed = True
+                    try:
+                        footer_issues = analyze_footer(page_data['footer_html'], page_data['url'])
+                        if footer_issues:
+                            footer_page = {
+                                'url': 'footer://' + page_data['url'].split('/')[2],
+                                'title': 'Footer do Site',
+                                'status_code': 200,
+                                'load_time': 0,
+                                '_word_count': 0,
+                            }
+                            cnt, hi, med, lo = _db_save_page(analysis_id, footer_page, footer_issues, None)
+                            total_issues += cnt
+                            high_issues += hi
+                            medium_issues += med
+                            low_issues += lo
+                            print(f'[ANALYSIS] Footer analisado: {cnt} problemas encontrados')
+                    except Exception as e:
+                        print(f'[ANALYSIS] Erro ao analisar footer: {e}')
+
                 issues, word_count = analyze_page(page_data)
                 page_data['_word_count'] = word_count
 
@@ -966,6 +989,7 @@ def admin_project_detail(project_id):
             (a for a in analyses if a['status'] in ('completed', 'stopped')), None
         )
 
+        footer_data = None
         if display_analysis:
             cur.execute('''
                 SELECT pg.*,
@@ -979,14 +1003,24 @@ def admin_project_detail(project_id):
                 GROUP BY pg.id
                 ORDER BY COUNT(i.id) DESC
             ''', (display_analysis['id'],))
-            pages_data = cur.fetchall()
+            all_pages = cur.fetchall()
+            pages_data = [p for p in all_pages if not p['url'].startswith('footer://')]
+            footer_rows = [p for p in all_pages if p['url'].startswith('footer://')]
+            if footer_rows:
+                footer_page = footer_rows[0]
+                cur.execute('SELECT * FROM issues WHERE page_id = %s', (footer_page['id'],))
+                footer_data = {
+                    'page': footer_page,
+                    'issues': cur.fetchall(),
+                }
 
     return render_template('admin/project_detail.html',
                            project=project,
                            analyses=analyses,
                            latest_analysis=latest_analysis,
                            display_analysis=display_analysis,
-                           pages_data=pages_data)
+                           pages_data=pages_data,
+                           footer_data=footer_data)
 
 
 @app.route('/admin/projetos/<int:project_id>/atualizar-sitemap', methods=['POST'])

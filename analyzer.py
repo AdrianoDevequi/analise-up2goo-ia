@@ -423,6 +423,94 @@ def analyze_page(page_data):
 
 
 # ---------------------------------------------------------------------------
+# Footer Analysis (run once per site, not per page)
+# ---------------------------------------------------------------------------
+
+def analyze_footer(footer_html, site_url):
+    """
+    Analyze the site footer for SEO issues.
+    Called once per analysis using the footer extracted from the first page.
+
+    Returns:
+        list[dict] of issues found in the footer.
+    """
+    from bs4 import BeautifulSoup
+    from urllib.parse import urljoin
+
+    if not footer_html:
+        return []
+
+    soup = BeautifulSoup(footer_html, 'lxml')
+    issues = []
+
+    # --- Images without alt in footer ---
+    all_images = soup.find_all('img')
+    images_no_alt = [img for img in all_images if not img.get('alt', '').strip()]
+    if images_no_alt:
+        srcs = []
+        for img in images_no_alt:
+            src = img.get('src', '').strip()
+            if src and not src.startswith('data:'):
+                srcs.append(urljoin(site_url, src))
+        current_val = f'{len(images_no_alt)} de {len(all_images)} imagens sem alt no footer'
+        if srcs:
+            current_val += '\n' + '\n'.join(srcs)
+        issues.append({
+            'category': 'image',
+            'severity': 'medium',
+            'title': f'Footer: {len(images_no_alt)} imagem(ns) sem texto alternativo',
+            'description': 'Imagens no footer sem atributo alt se repetem em todas as páginas, impactando acessibilidade e SEO do site inteiro.',
+            'current_value': current_val,
+            'suggestion': 'Adicione alt descritivo nas imagens do footer (logo, selos, ícones de pagamento, etc.).'
+        })
+
+    # --- Broken or empty links in footer ---
+    links = soup.find_all('a', href=True)
+    empty_links = [a for a in links if not a['href'].strip() or a['href'].strip() == '#']
+    if empty_links:
+        texts = [a.get_text(strip=True) or '(sem texto)' for a in empty_links[:5]]
+        issues.append({
+            'category': 'links',
+            'severity': 'low',
+            'title': f'Footer: {len(empty_links)} link(s) vazio(s) ou com href="#"',
+            'description': 'Links sem destino no footer não contribuem para o SEO e prejudicam a navegação.',
+            'current_value': ', '.join(texts),
+            'suggestion': 'Remova links sem destino ou aponte-os para páginas reais do site.'
+        })
+
+    # --- Links without text ---
+    links_no_text = [a for a in links if not a.get_text(strip=True) and not a.find('img')]
+    if links_no_text:
+        hrefs = [a['href'][:60] for a in links_no_text[:5]]
+        issues.append({
+            'category': 'links',
+            'severity': 'low',
+            'title': f'Footer: {len(links_no_text)} link(s) sem texto âncora',
+            'description': 'Links sem texto visível dificultam a compreensão por buscadores e leitores de tela.',
+            'current_value': ', '.join(hrefs),
+            'suggestion': 'Adicione texto descritivo ou aria-label nos links do footer.'
+        })
+
+    # --- Check for social media links ---
+    footer_text = soup.get_text(separator=' ', strip=True).lower()
+    footer_hrefs = ' '.join(a['href'] for a in links)
+    social_domains = ['facebook.com', 'instagram.com', 'twitter.com', 'x.com',
+                      'linkedin.com', 'youtube.com', 'tiktok.com']
+    has_social = any(d in footer_hrefs for d in social_domains)
+    if not has_social:
+        issues.append({
+            'category': 'social',
+            'severity': 'low',
+            'title': 'Footer: sem links para redes sociais',
+            'description': 'Links para redes sociais no footer ajudam no branding e podem gerar sinais sociais para o SEO.',
+            'current_value': 'Nenhum link social encontrado no footer',
+            'suggestion': 'Adicione links para os perfis da empresa (Instagram, Facebook, LinkedIn, YouTube, etc.).'
+        })
+
+    return issues
+
+
+# ---------------------------------------------------------------------------
 # AI Suggestions via Gemini
 # ---------------------------------------------------------------------------
 

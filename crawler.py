@@ -95,6 +95,12 @@ def crawl_website(base_url, max_pages=30, callback=None):
 
             soup = BeautifulSoup(response.text, 'lxml')
 
+            # Extract footer before removing non-content elements
+            page_data['footer_html'] = None
+            footer_tag = soup.find('footer')
+            if footer_tag:
+                page_data['footer_html'] = str(footer_tag)
+
             # Remove non-content elements
             for tag in soup(['script', 'style', 'noscript', 'header', 'footer', 'nav']):
                 tag.decompose()
@@ -181,6 +187,12 @@ def fetch_page_playwright(url):
                 browser.close()
 
         soup = BeautifulSoup(html, 'lxml')
+
+        page_data['footer_html'] = None
+        footer_tag = soup.find('footer')
+        if footer_tag:
+            page_data['footer_html'] = str(footer_tag)
+
         for tag in soup(['script', 'style', 'noscript', 'header', 'footer', 'nav']):
             tag.decompose()
         page_data['soup'] = soup
@@ -221,6 +233,12 @@ def fetch_page(url):
             return page_data
 
         soup = BeautifulSoup(response.text, 'lxml')
+
+        page_data['footer_html'] = None
+        footer_tag = soup.find('footer')
+        if footer_tag:
+            page_data['footer_html'] = str(footer_tag)
+
         for tag in soup(['script', 'style', 'noscript', 'header', 'footer', 'nav']):
             tag.decompose()
 

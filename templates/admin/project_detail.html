@@ -326,6 +326,49 @@
       </div>
     </div>
 
+    <!-- Footer analysis card -->
+    {% if footer_data %}
+    <div class="card shadow-sm border-0 mt-4 border-start border-4 border-warning">
+      <div class="card-header bg-white border-bottom py-3">
+        <h6 class="mb-0 fw-semibold">
+          <i class="bi bi-layout-text-window-reverse me-2 text-warning"></i>
+          Footer do Site
+          {% if footer_data.issues %}
+          <span class="badge bg-warning text-dark ms-2">{{ footer_data.issues | length }} problema{{ 's' if footer_data.issues | length != 1 }}</span>
+          {% else %}
+          <span class="badge bg-success ms-2">OK</span>
+          {% endif %}
+        </h6>
+        <div class="small text-muted mt-1">Analisado uma vez — problemas aqui afetam todas as páginas do site.</div>
+      </div>
+      {% if footer_data.issues %}
+      <div class="card-body p-0">
+        <div class="list-group list-group-flush">
+          {% for issue in footer_data.issues %}
+          <div class="list-group-item px-4 py-3">
+            <div class="d-flex align-items-start gap-2">
+              <span class="badge mt-1 {% if issue.severity == 'high' %}bg-danger{% elif issue.severity == 'medium' %}bg-warning text-dark{% else %}bg-info{% endif %}">
+                {% if issue.severity == 'high' %}Crítico{% elif issue.severity == 'medium' %}Médio{% else %}Baixo{% endif %}
+              </span>
+              <div class="flex-grow-1">
+                <div class="fw-semibold small">{{ issue.title }}</div>
+                <div class="text-muted small mt-1">{{ issue.description }}</div>
+                {% if issue.current_value %}
+                <div class="mt-2 p-2 bg-light rounded small font-monospace" style="white-space:pre-line">{{ issue.current_value }}</div>
+                {% endif %}
+                {% if issue.suggestion %}
+                <div class="mt-2 small text-success"><i class="bi bi-lightbulb me-1"></i>{{ issue.suggestion }}</div>
+                {% endif %}
+              </div>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+    </div>
+    {% endif %}
+
     <!-- Pages list -->
     {% if pages_data %}
     <div class="card shadow-sm border-0 mt-4">
